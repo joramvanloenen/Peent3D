@@ -63,7 +63,7 @@ export function prepareScene(root, name = 'Untitled') {
     if (child.isMesh && child.geometry?.getAttribute('position')) meshes.push(child);
   });
   if (!meshes.length) throw Error('The file does not contain any triangle meshes.');
-  const positions = [], normals = [], uvs = [], ids = [];
+  const positions = [], normals = [], uvs = [], ids = [], meshIDs = [];
   let meshId = 0, missingUVs = false, triangleCount = 0;
   for (const mesh of meshes) {
     let geometry = mesh.geometry.clone();
@@ -92,7 +92,7 @@ export function prepareScene(root, name = 'Untitled') {
           const ty = [0.08, 0.08, 0.92][corner];
           uvs.push((cx + tx) / cols, (cy + ty) / cols);
         }
-        ids.push(materialId);
+        ids.push(materialId);meshIDs.push(meshId);
       }
     }
     triangleCount += triangles;
@@ -104,6 +104,7 @@ export function prepareScene(root, name = 'Untitled') {
   g.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   g.setAttribute('aId', new THREE.Float32BufferAttribute(ids, 1));
+  g.setAttribute('aMeshId',new THREE.Float32BufferAttribute(meshIDs,1));
   g.computeBoundingBox();
   const bounds = g.boundingBox.clone();
   const center = bounds.getCenter(new THREE.Vector3());

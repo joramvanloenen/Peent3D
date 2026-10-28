@@ -6,9 +6,14 @@ in vec3 vAltitude;
 in vec3 vBarycentric;
 flat in vec3 vEdgeAngles;
 flat in int vId;
+flat in int vTriangleId;
 uniform int uMode;
 uniform vec3 uMin;
 uniform vec3 uSize;
+uniform sampler2D uFeatureSegments;
+uniform int uFeatureWidth;
+uniform int uFeatureStride;
+uniform float uAngleThreshold;
 out vec4 frag;
 vec3 idColor(int id){
  return vec3(fract(float(id)*.61803398875+.20),
@@ -25,16 +30,26 @@ void main(){
  else if(uMode==5) frag=vec4(.5,.5,1.,1.);
  else if(uMode==6) frag=vec4(1.);
  else {
-   // UV barycentric * world-space triangle altitude gives edge proximity
-   // in consistent model units, independent of UV scaling or texture size.
-   vec3 distanceToEdge=max(vBarycentric,0.)*max(vAltitude,0.);
-   float convex=32.,concave=32.,angleConvex=0.,angleConcave=0.;
-   for(int i=0;i<3;i++){
-     float signedAngle=vEdgeAngles[i];
-     float d=distanceToEdge[i];
-     if(signedAngle>0.5 && d<convex){convex=d;angleConvex=signedAngle;}
-     if(signedAngle<-.5 && d<concave){concave=d;angleConcave=-signedAngle;}
+   // Exact Euclidean distance in 3D to actual *finite feature segments*.
+   // Unlike per-triangle barycentrics, this is continuous across UV seams,
+   // between coplanar triangles, and around corners.
+   int start=vTriangleId*uFeatureStride;
+   int count=int(texelFetch(uFeatureSegments,ivec2(start%uFeatureWidth,start/uFeatureWidth),0).r+.5);
+   float convex=32.,concave=32.,convexAngle=0.,concaveAngle=0.;
+   for(int i=0;i<24;i++){
+     if(i>=count)break;
+     int ia=start+1+i*2;
+     vec4 a=texelFetch(uFeatureSegments,ivec2(ia%uFeatureWidth,ia/uFeatureWidth),0);
+     int ib=ia+1;
+     vec3 b=texelFetch(uFeatureSegments,ivec2(ib%uFeatureWidth,ib/uFeatureWidth),0).xyz;
+     float angle=a.w;
+     if(abs(angle)<uAngleThreshold)continue;
+     vec3 d=b-a.xyz;
+     float t=clamp(dot(vPosition-a.xyz,d)/max(dot(d,d),1e-12),0.,1.);
+     float dist=length(vPosition-(a.xyz+t*d));
+     if(angle>0. && dist<convex){convex=dist;convexAngle=angle;}
+     if(angle<0. && dist<concave){concave=dist;concaveAngle=-angle;}
    }
-   frag=vec4(convex,concave,angleConvex,angleConcave);
+   frag=vec4(convex,concave,convexAngle,concaveAngle);
  }
 }
