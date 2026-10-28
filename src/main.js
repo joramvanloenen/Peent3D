@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import {zipSync,gzipSync,gunzipSync,strToU8,strFromU8} from 'fflate';
 import {PeentGPU} from './gpu.js';
 import {createDemoMesh,loadMesh,prepareScene} from './geometry.js';
+import {createMaskPresetBrowser} from './mask-preset-browser.js';
 
 const $=id=>document.getElementById(id);
 const masks=[
@@ -141,6 +142,25 @@ try{
  $('gpu-info').textContent='GPU · '+gpu.gpuName;
 }catch(error){$('viewport').textContent='GPU initialization failed: '+error.message;throw error;}
 gpu.layers=layers;
+const maskPresetBrowser=createMaskPresetBrowser({
+ getLayer:()=>currentLayer(),
+ getSelectedMaskId:()=>selectedMaskId,
+ makeEffect:(mask,options)=>createMaskEntry(mask,options),
+ onApply:(layer,effects,mode,preset)=>{
+   const index=layers.indexOf(layer);
+   if(index<0)return;
+   if(mode==='replace')layer.masks=effects;
+   else layer.masks.push(...effects);
+   selectedMaskId=effects[0]?.id||layer.masks[0]?.id;
+   // Existing smart-mask render targets remain valid; replaced ones are
+   // discarded by the GPU cache's orphan cleanup during composition.
+   mark(index);
+   renderLayers();
+   renderProperties();
+   status((mode==='replace'?'Replaced':'Added')+' smart masks: '+preset.name);
+ },
+ onStatus:message=>status(message)
+});
 function status(message){$('status').textContent=message;}
 function currentLayer(){return layers.find(l=>l.id===selected);}
 function mark(index=0,field=null,maskId=null,effectChanged=true){
@@ -308,7 +328,9 @@ function renderProperties(){
    layer.masks.push(created);selectedMaskId=created.id;
    mark(index(),null,created.id);renderProperties();renderLayers();
  });
- add.id='btn-add-smart-mask';addRow.append(addSelect,add);root.append(addRow);
+ const browse=button('▦ Presets',()=>maskPresetBrowser.open());
+ browse.id='btn-browse-masks';browse.title='Browse smart-mask preset library';
+ add.id='btn-add-smart-mask';addRow.append(addSelect,add,browse);root.append(addRow);
  const list=document.createElement('div');list.className='mask-stack';
  for(let i=0;i<layer.masks.length;i++){
    const mask=layer.masks[i];
