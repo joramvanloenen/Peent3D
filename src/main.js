@@ -42,11 +42,11 @@ const GENERATOR_DEFAULTS={
  5:{contrast:1.1,breakup:.12,scale:2},
  6:{contrast:1.2,breakup:.12,scale:3},
  7:{contrast:1.8,breakup:0,scale:2.1},
- 8:{contrast:1.15,breakup:0,scale:2.2,density:.32,length:1.4,width:.08,direction:0},
- 9:{contrast:1.2,breakup:0,scale:1.8,density:.27,length:1.2,width:.055,direction:0,cavity:.65},
- 10:{contrast:1.45,breakup:.30,breakupScale:1.8,scale:2.9,density:.30,length:1.1,width:.07,cavity:.8},
+ 8:{contrast:1.10,breakup:0,scale:1.5,density:.60,length:2.1,width:.17,direction:0},
+ 9:{contrast:1.14,breakup:0,scale:1.6,density:.46,length:2.35,width:.14,direction:0,cavity:.75},
+ 10:{contrast:1.2,breakup:.20,breakupScale:2.4,scale:3.3,density:.40,length:1.55,width:.11,cavity:.82},
  11:{contrast:1.10,breakup:.14,scale:2.1,topBias:.74,cavity:.32},
- 12:{contrast:1.0,breakup:0,scale:3,density:.32,length:.9,width:.035,direction:26}
+ 12:{contrast:1.08,breakup:0,scale:1.8,density:.48,length:1.75,width:.068,direction:26}
 };
 const presets=[
   {name:'Base iron',color:'#777b7e',roughness:.47,metallic:.93,mask:0,projection:'triplanar',scale:3,variation:.05},
