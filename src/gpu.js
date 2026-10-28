@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {buildBVH} from './geometry.js';
+import {buildEdgeNeighborhood} from './edge.js';
+import maskBlendFrag from './shaders/mask-blend.frag.glsl?raw';
 import uvVert from './shaders/uv.vert.glsl?raw';
 import uvFrag from './shaders/uv.frag.glsl?raw';
 import quadVert from './shaders/quad.vert.glsl?raw';
@@ -69,7 +71,8 @@ export class PeentGPU {
     this.viewCamera=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
     this.raycaster=new THREE.Raycaster();
     this.size=512;this.sampleCount=16;this.rayDistance=.35;
-    this.maps={};this.composites=[];this.padded={};this.paintMasks=new Map();this.smartMasks=new Map();this.imageTextures=new Map();
+    this.maps={};this.composites=[];this.padded={};this.paintMasks=new Map();this.smartMasks=new Map();
+    this.effectMasks=new Map();this.dirtyEffects=new Set();this.edgeMaps=new Map();this.imageTextures=new Map();
     this.whiteTexture=new THREE.DataTexture(new Uint8Array([255,255,255,255]),1,1,THREE.RGBAFormat);this.whiteTexture.needsUpdate=true;
     this.dirtyFrom=0;
     this.dirtyChannels=new Set(CHANNELS);
@@ -105,10 +108,22 @@ export class PeentGPU {
     if(this.mesh){this.scene.remove(this.mesh);this.mesh.geometry.dispose();}
     if(this.uvMesh)this.uvScene.remove(this.uvMesh);
     this.bvh?.dispose();
+    this.features?.dispose();
+    this.features=buildEdgeNeighborhood(result.geometry);
+    const geometry=result.geometry;
+    if(!geometry.getAttribute('aTriangleId')){
+      const data=new Float32Array(geometry.getAttribute('position').count);
+      for(let i=0;i<data.length;i++)data[i]=Math.floor(i/3);
+      geometry.setAttribute('aTriangleId',new THREE.BufferAttribute(data,1));
+    }
+    this.uvBakeMaterial?.dispose();this.uvBakeMaterial=null;
+    for(const rt of this.edgeMaps.values())rt.dispose();this.edgeMaps.clear();
     disposeTargets(this.maps);this.maps={};
     disposeTargets(this.composites);this.composites=[];
     disposeTargets(this.padded);this.padded={};
     for(const rt of this.smartMasks.values())rt.dispose();this.smartMasks.clear();
+    for(const rt of this.effectMasks.values())rt.dispose();this.effectMasks.clear();this.dirtyEffects.clear();
+    this.maskScratch?.dispose();this.maskScratch=null;
     this.normalResult?.dispose();this.normalResult=null;
     for(const rt of this.paintMasks.values())rt.dispose();
     this.paintMasks.clear();
@@ -147,19 +162,44 @@ export class PeentGPU {
     this.renderer.setRenderTarget(null);
     this.renderer.setClearColor(0x11151c,1);
   }
+  _edgeMap(angle=0,interactive=false){
+    // Cache a separate exact-distance map for each actual dihedral threshold.
+    // The edge-distance field itself is sampled in object space and is UV seam safe.
+    const resolution=interactive?Math.min(this.size,512):this.size;
+    const threshold=Math.round(Math.min(175,Math.max(0,angle)));
+    const key=threshold+':'+resolution;
+    if(this.edgeMaps.has(key))return this.edgeMaps.get(key);
+    const rt=target(resolution);
+    const mat=this.uvBakeMaterial;
+    mat.uniforms.uMode.value=7;
+    mat.uniforms.uAngleThreshold.value=threshold;
+    this._draw(mat,rt,this.uvScene);
+    rt.texture.magFilter=THREE.NearestFilter;
+    this.edgeMaps.set(key,rt);
+    // Bound persistent caches; a draggable angle control must not leak VRAM.
+    if(this.edgeMaps.size>12){
+      const first=this.edgeMaps.keys().next().value;
+      if(first!==key){this.edgeMaps.get(first).dispose();this.edgeMaps.delete(first);}
+    }
+    return rt;
+  }
   _bakeRaster(){
     const bounds=this.model.geometry.boundingBox;
     const size=bounds.getSize(new THREE.Vector3());
-    const mat=shader(uvVert,uvFrag,{
-      uMode:U(0),uMin:U(bounds.min.clone()),uSize:U(size)
+    this.uvBakeMaterial=shader(uvVert,uvFrag,{
+      uMode:U(0),uMin:U(bounds.min.clone()),uSize:U(size),
+      uFeatureSegments:U(this.features.texture),
+      uFeatureWidth:U(this.features.width),
+      uFeatureStride:U(this.features.stride),
+      uAngleThreshold:U(0)
     });
-    for(let i=0;i<MESH_MAPS.length;i++){
+    for(let i=0;i<MESH_MAPS.length-1;i++){
       const name=MESH_MAPS[i];
       this.maps[name]=target(this.size);
-      mat.uniforms.uMode.value=i;
-      this._draw(mat,this.maps[name],this.uvScene);
+      this.uvBakeMaterial.uniforms.uMode.value=i;
+      this._draw(this.uvBakeMaterial,this.maps[name],this.uvScene);
     }
-    mat.dispose();
+    this.maps.edges=this._edgeMap(0,false);
   }
   _bakeRays(){
     const nodes=this.bvh.nodes,triangles=this.bvh.triangles;
@@ -185,6 +225,8 @@ export class PeentGPU {
   async bake(onProgress=()=>{}){
     if(!this.model)throw Error('Load a mesh first');
     disposeTargets(this.maps);this.maps={};
+    for(const rt of this.edgeMaps.values())rt.dispose();this.edgeMaps.clear();
+    this.uvBakeMaterial?.dispose();this.uvBakeMaterial=null;
     onProgress('Rasterizing UV geometry');
     await new Promise(requestAnimationFrame);
     this._bakeRaster();
@@ -212,6 +254,8 @@ export class PeentGPU {
     for(const rt of this.paintMasks.values())rt.dispose();
     this.paintMasks.clear();
     for(const rt of this.smartMasks.values())rt.dispose();this.smartMasks.clear();
+    for(const rt of this.effectMasks.values())rt.dispose();this.effectMasks.clear();this.dirtyEffects.clear();
+    this.maskScratch?.dispose();this.maskScratch=null;
     disposeTargets(this.composites);
     this.composites=[];
     this.dirtyChannels=new Set(CHANNELS);
@@ -227,55 +271,101 @@ export class PeentGPU {
     this.renderer.setClearColor(0x11151c,1);
     this.markDirty(Math.max(0,this.layers.findIndex(x=>x.id===layer.id)));
   }
-  _renderSmartMask(layer,bounds){
-    let rt=this.smartMasks.get(layer.id);
-    // Bake low-res interactive masks when adjusting expensive procedural generators.
-    // Settled composition automatically restores the requested full resolution.
-    const width=this.interactive && this.dirtySmart.has(layer.id)?Math.min(this.size,512):this.size;
-    if(rt && rt.width!==width && this.dirtySmart.has(layer.id)){rt.dispose();this.smartMasks.delete(layer.id);rt=null;}
-    if(!rt){rt=target(width);this.smartMasks.set(layer.id,rt);this.dirtySmart.add(layer.id);}
-    rt.texture.minFilter=THREE.LinearFilter;
-    rt.texture.magFilter=THREE.LinearFilter;
-    if(!this.dirtySmart.has(layer.id))return rt;
+  _renderEffect(layer,effect,bounds){
+    if(effect.mask===0)return this.whiteTexture;
+    const width=this.interactive?Math.min(this.size,512):this.size;
+    const key=effect.id;
+    let rt=this.effectMasks.get(key);
+    if(rt && rt.width!==width){rt.dispose();this.effectMasks.delete(key);rt=null;}
+    if(!rt){rt=target(width);this.effectMasks.set(key,rt);this.dirtyEffects.add(key);}
+    if(!this.dirtyEffects.has(key))return rt.texture;
     if(!this.smartMaterial){
       const names=['uPosition','uNormal','uEdges','uAO','uThickness','uCurvature',
         'uMask','uInvert','uSeed','uScale','uContrast','uBreakup',
-        'uBreakupHardness','uBreakupPosition','uBreakupWidth',
-        'uEdgeDistance','uAngleThreshold','uSoftness','uDensity','uLength',
-        'uWidth','uDirection','uGravity','uCavity','uAOProtect','uTopBias',
+        'uBreakupHardness','uBreakupPosition','uBreakupWidth','uEdgeDistance',
+        'uAngleThreshold','uSoftness','uDensity','uLength','uWidth',
+        'uDirection','uGravity','uCavity','uAOProtect','uTopBias',
         'uBreakupScale','uMin','uSize'];
-      const uniforms=Object.fromEntries(names.map(name=>[name,U(null)]));
-      this.smartMaterial=shader(quadVert,smartFrag,uniforms);
+      this.smartMaterial=shader(quadVert,smartFrag,Object.fromEntries(names.map(n=>[n,U(null)])));
     }
     const u=this.smartMaterial.uniforms;
-    const params=layer;
+    const edgeAware=[1,2,9,10,11].includes(effect.mask);
+    const e=edgeAware?this._edgeMap(effect.angleThreshold??20,this.interactive):this.maps.edges;
     const values={
       uPosition:this.maps.position.texture,uNormal:this.maps.worldNormal.texture,
-      uEdges:this.maps.edges.texture,uAO:this.maps.ao.texture,
+      uEdges:e.texture,uAO:this.maps.ao.texture,
       uThickness:this.maps.thickness.texture,uCurvature:this.maps.curvature.texture,
-      uMask:params.mask||0,uInvert:params.maskInvert?1:0,uSeed:params.seed||0,
-      uScale:params.scale??3,uContrast:params.contrast??1,uBreakup:params.breakup??.12,
-      uBreakupHardness:params.breakupHardness??.55,
-      uBreakupPosition:params.breakupPosition??.53,
-      uBreakupWidth:params.breakupWidth??.60,
-      uEdgeDistance:params.edgeDistance??.035,uAngleThreshold:params.angleThreshold??20,
-      uSoftness:params.softness??.35,uDensity:params.density??.36,
-      uLength:params.length??.8,uWidth:params.width??.035,
-      uDirection:params.direction??35,uGravity:params.gravity??1,
-      uCavity:params.cavity??.65,uAOProtect:params.aoProtect??.35,
-      uTopBias:params.topBias??.75,uBreakupScale:params.breakupScale??1,
+      uMask:effect.mask,uInvert:effect.maskInvert?1:0,uSeed:effect.seed??layer.seed??0,
+      uScale:effect.scale??3,uContrast:effect.contrast??1,uBreakup:effect.breakup??0,
+      uBreakupHardness:effect.breakupHardness??.55,
+      uBreakupPosition:effect.breakupPosition??.53,uBreakupWidth:effect.breakupWidth??.60,
+      uEdgeDistance:effect.edgeDistance??.035,uAngleThreshold:effect.angleThreshold??180,
+      uSoftness:effect.softness??.35,uDensity:effect.density??.36,
+      uLength:effect.length??.8,uWidth:effect.width??.035,
+      uDirection:effect.direction??35,uGravity:effect.gravity??1,
+      uCavity:effect.cavity??.65,uAOProtect:effect.aoProtect??.35,
+      uTopBias:effect.topBias??.75,uBreakupScale:effect.breakupScale??1,
       uMin:bounds.min,uSize:bounds.getSize(this._boundsSize||(this._boundsSize=new THREE.Vector3()))
     };
     for(const [name,value] of Object.entries(values))u[name].value=value;
     this._draw(this.smartMaterial,rt);
-    this.dirtySmart.delete(layer.id);
-    return rt;
+    rt.texture.magFilter=THREE.LinearFilter;
+    rt.texture.minFilter=THREE.LinearFilter;
+    this.dirtyEffects.delete(key);
+    return rt.texture;
   }
-  markDirty(index=0,{smart=true,channel=null}={}){
+  _renderSmartMask(layer,bounds){
+    // Backward-compatible fallback for projects predating stacked effects.
+    const effects=layer.masks||[layer];
+    const width=this.interactive?Math.min(this.size,512):this.size;
+    let out=this.smartMasks.get(layer.id);
+    if(out && out.width!==width){out.dispose();this.smartMasks.delete(layer.id);out=null;}
+    if(!out){out=target(width);this.smartMasks.set(layer.id,out);this.dirtySmart.add(layer.id);}
+    if(!this.dirtySmart.has(layer.id))return out;
+    const enabled=effects.filter(e=>e.enabled!==false);
+    if(!this.maskBlendMaterial)this.maskBlendMaterial=shader(quadVert,maskBlendFrag,{
+      uPrevious:U(this.whiteTexture),uEffect:U(this.whiteTexture),
+      uMode:U(0),uOpacity:U(1)
+    });
+    if(!this.maskScratch || this.maskScratch.width!==width){
+      this.maskScratch?.dispose();this.maskScratch=target(width);
+    }
+    let previous=this.whiteTexture;
+    if(!enabled.length){
+      const u=this.maskBlendMaterial.uniforms;
+      u.uPrevious.value=this.whiteTexture;u.uEffect.value=this.whiteTexture;
+      u.uMode.value=0;u.uOpacity.value=1;
+      this._draw(this.maskBlendMaterial,out);
+    }
+    for(let i=0;i<enabled.length;i++){
+      const effect=enabled[i];
+      const t=this._renderEffect(layer,effect,bounds);
+      const u=this.maskBlendMaterial.uniforms;
+      u.uPrevious.value=previous;
+      u.uEffect.value=t;
+      u.uMode.value=i===0?0:['replace','multiply','add','subtract','max','min'].indexOf(effect.combine||'multiply');
+      u.uMode.value=Math.max(0,u.uMode.value);
+      u.uOpacity.value=effect.opacity??1;
+      const dst=i%2===(enabled.length-1)%2?out:this.maskScratch;
+      this._draw(this.maskBlendMaterial,dst);
+      previous=dst.texture;
+    }
+    out.texture.magFilter=THREE.LinearFilter;out.texture.minFilter=THREE.LinearFilter;
+    this.dirtySmart.delete(layer.id);
+    return out;
+  }
+  markDirty(index=0,{smart=true,channel=null,maskId=null,effectChanged=true}={}){
     this.dirtyFrom=Math.min(this.dirtyFrom,Math.max(0,index));
-    if(channel && CHANNELS.includes(channel))this.dirtyChannels.add(channel);
+    if(channel&&CHANNELS.includes(channel))this.dirtyChannels.add(channel);
     else CHANNELS.forEach(name=>this.dirtyChannels.add(name));
-    if(smart && this.layers[index])this.dirtySmart.add(this.layers[index].id);
+    if(smart&&this.layers[index]){
+      const layer=this.layers[index];
+      this.dirtySmart.add(layer.id);
+      if(effectChanged){
+        const effects=layer.masks||[layer];
+        for(const effect of effects)if(maskId===null||maskId===effect.id)this.dirtyEffects.add(effect.id);
+      }
+    }
   }
   compose(layers=this.layers,interactive=false){
     this.layers=layers;
@@ -353,6 +443,8 @@ export class PeentGPU {
     this.composites.length=layers.length;
     const active=new Set(layers.map(l=>l.id));
     for(const [id,rt] of this.smartMasks)if(!active.has(id)){rt.dispose();this.smartMasks.delete(id);}
+    const masksActive=new Set(layers.flatMap(layer=>(layer.masks||[layer]).map(effect=>effect.id)));
+    for(const [id,rt] of this.effectMasks)if(!masksActive.has(id)){rt.dispose();this.effectMasks.delete(id);this.dirtyEffects.delete(id);}
     for(const [id,rt] of this.paintMasks)if(!active.has(id)){rt.dispose();this.paintMasks.delete(id);}
     if(interactive){
       for(const name of activeChannels)this.dirtyChannels.delete(name);
@@ -514,7 +606,7 @@ export class PeentGPU {
     for(let i=0;i<this.layers.length;i++){
       const layer=this.layers[i];
       const mask=this.smartMasks.get(layer.id);
-      if(!layer.mask || !mask)continue;
+      if(!(layer.masks||[layer]).some(e=>e.mask!==0) || !mask)continue;
       const slug=layer.name.replace(/[^a-z0-9_-]+/gi,'_').slice(0,50)||'Mask';
       files['SmartMask_'+String(i+1).padStart(2,'0')+'_'+slug+'.png']=await this.mapPNG(mask,2);
     }
@@ -557,6 +649,10 @@ export class PeentGPU {
   dispose(){
     this._running=false;this._resizer.disconnect();
     disposeTargets(this.maps);disposeTargets(this.composites);disposeTargets(this.padded);
+    this.features?.dispose();this.uvBakeMaterial?.dispose();
+    for(const rt of this.edgeMaps.values())if(rt!==this.maps.edges)rt.dispose();this.edgeMaps.clear();
+    for(const rt of this.effectMasks.values())rt.dispose();this.effectMasks.clear();
+    this.maskScratch?.dispose();this.maskBlendMaterial?.dispose();
     this.smartMaterial?.dispose();this.layerMaterial?.dispose();
     for(const rt of this.smartMasks.values())rt.dispose();this.smartMasks.clear();
     this.padScratch?.dispose();
