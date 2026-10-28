@@ -53,7 +53,11 @@ const presets=[
   {name:'Painted coating',color:'#677477',roughness:.53,metallic:.12,mask:0,projection:'triplanar',scale:2,variation:.015},
   {name:'Fine edge wear',color:'#b0a9a1',roughness:.31,metallic:1,mask:1,projection:'triplanar',variation:.04,opacity:.58,...GENERATOR_DEFAULTS[1]},
   {name:'Cavity deposits',color:'#41372e',roughness:.82,metallic:0,mask:3,projection:'triplanar',variation:.04,opacity:.25,...GENERATOR_DEFAULTS[3]},
-  {name:'Iron oxidation',color:'#804834',roughness:.86,metallic:.12,mask:10,projection:'triplanar',variation:.14,opacity:.58,...GENERATOR_DEFAULTS[10]}
+  {name:'Iron oxidation',color:'#804834',roughness:.86,metallic:.12,mask:10,projection:'triplanar',variation:.14,opacity:.58,...GENERATOR_DEFAULTS[10]},
+  {name:'Settled dust',color:'#b8b1a1',roughness:.92,metallic:0,mask:11,projection:'triplanar',variation:.04,opacity:.45,...GENERATOR_DEFAULTS[11]},
+  {name:'Surface streaks',color:'#4d4840',roughness:.84,metallic:0,mask:8,projection:'triplanar',variation:.03,opacity:.5,...GENERATOR_DEFAULTS[8]},
+  {name:'Gravity leaks',color:'#5b4636',roughness:.8,metallic:0,mask:9,projection:'triplanar',variation:.05,opacity:.68,...GENERATOR_DEFAULTS[9]},
+  {name:'Fine scratches',color:'#c0b9b0',roughness:.35,metallic:.9,height:-.028,mask:12,projection:'triplanar',variation:.02,opacity:.54,...GENERATOR_DEFAULTS[12]}
 ];
 let nextId=1;
 function newLayer(partial={}){
@@ -264,7 +268,7 @@ function moveLayer(amount){
   const [layer]=layers.splice(i,1);layers.splice(dest,0,layer);
   mark(Math.min(i,dest));renderLayers();
 }
-$('btn-add-layer').onclick=()=>addLayer(presets[4]);
+$('btn-add-layer').onclick=()=>addLayer(presets[Number($('new-layer-preset').value)]||presets[4]);
 $('btn-remove-layer').onclick=()=>{
   if(layers.length<=1){status('At least one layer is required');return;}
   const i=layers.findIndex(l=>l.id===selected);

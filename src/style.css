@@ -86,3 +86,5 @@ input[type=range]{cursor:pointer}
 #ray-distance-number{flex:none;width:65px;min-width:65px;text-align:right;height:27px;padding:3px 5px}
 #ray-distance-reset{flex:none;width:26px;height:27px;padding:0;color:#bbb;font-size:16px}
 #ray-distance-reset:hover{color:var(--accent)}
+
+#new-layer-preset{max-width:139px;min-width:0;flex:1;font-size:11px;padding:4px;background:#1e1e1e}
