@@ -87,7 +87,6 @@ export class PeentGPU {
     if(this.view==='uv'){
       const map=this.getPreviewTexture();
       this.viewQuad.material.map=map||null;
-      this.viewQuad.material.needsUpdate=true;
       this.renderer.render(this.uvViewScene,this.viewCamera);
     } else this.renderer.render(this.scene,this.camera);
   }
@@ -153,9 +152,14 @@ export class PeentGPU {
       uNodesWidth:U(nodes.width),uTrianglesWidth:U(triangles.width),
       uSamples:U(this.sampleCount),uMode:U(0),uDistance:U(this.rayDistance)
     });
+    // Ray maps are intentionally half-resolution; smooth sampling reconstructs masks.
+    // AO is the most expensive stage, so this reduces ray counts approximately 4x.
+    const raySize=Math.max(128,Math.floor(this.size/2));
     for(let i=0;i<3;i++){
       const name=['ao','bentNormal','thickness'][i];
-      this.maps[name]=target(this.size);
+      this.maps[name]=target(raySize);
+      this.maps[name].texture.minFilter=THREE.LinearFilter;
+      this.maps[name].texture.magFilter=THREE.LinearFilter;
       mat.uniforms.uMode.value=i;
       this._draw(mat,this.maps[name]);
     }
@@ -334,7 +338,9 @@ export class PeentGPU {
     const tex=rt?.texture;
     if(!tex)throw Error('No texture available. Bake the mesh first.');
     const exportTarget=target(this.size,THREE.UnsignedByteType);
-    const mat=shader(quadVert,copyFrag,{uTexture:U(tex),uMode:U(mode)});
+    const bounds=this.model.geometry.boundingBox;
+    const mat=shader(quadVert,copyFrag,{uTexture:U(tex),uMode:U(mode),
+      uMin:U(bounds.min.clone()),uSize:U(bounds.getSize(new THREE.Vector3()))});
     this._draw(mat,exportTarget);mat.dispose();
     const w=this.size,h=this.size,read=new Uint8Array(w*h*4);
     this.renderer.readRenderTargetPixels(exportTarget,0,0,w,h,read);
@@ -356,7 +362,7 @@ export class PeentGPU {
       BaseColor:[last?.baseColor,1],Roughness:[last?.roughness,2],
       Metallic:[last?.metalness,2],Normal:[this.normalResult,0],
       Height:[last?.height,2],AO:[this.maps.ao,2],
-      Curvature:[this.maps.curvature,2],Position:[this.maps.position,0],
+      Curvature:[this.maps.curvature,2],Position:[this.maps.position,3],
       WorldNormal:[this.maps.worldNormal,0],Thickness:[this.maps.thickness,2],
       BentNormal:[this.maps.bentNormal,0],ID:[this.maps.id,0],
       Elevation:[this.maps.elevation,2],Opacity:[this.maps.opacity,2]
@@ -377,8 +383,9 @@ export class PeentGPU {
       if(!this.layers.find(l=>l.id===id))continue;
       const blob=new Blob([new Uint8Array(bytes)],{type:'image/png'});
       const bitmap=await createImageBitmap(blob);
-      const tex=new THREE.CanvasTexture(bitmap);
+      const tex=new THREE.Texture(bitmap);
       tex.colorSpace=THREE.NoColorSpace;
+      tex.needsUpdate=true;
       const rt=target(this.size);
       const mat=shader(quadVert,copyFrag,{uTexture:U(tex),uMode:U(0)});
       this._draw(mat,rt);mat.dispose();tex.dispose();bitmap.close();

@@ -26,7 +26,7 @@
 - No high-poly-derived tangent-space normal or displacement details. **The geometry normal baker returns flat tangent normals**; painted height generates an approximate tangent-space normal texture.
 - No UDIM/multiple texture sets, PBR material texture imports, layer folders, shader graphs, clone/stencil/decals, symmetry, sophisticated brush dynamics, layer undo, paint-stroke undo, or layer-to-layer anchor references.
 - Curvature is a **vertex-neighborhood approximation**, not a high-resolution multi-scale curvature baker.
-- AO/bent normal and thickness are real GPU mesh-ray queries, but the limited sample count and ray distance make them **local approximations**.
+- AO/bent normal and thickness are GPU mesh-ray queries calculated at half map resolution, then sampled smoothly. The limited sample count and ray distance make them **local approximations**.
 - Missing UVs use a unique triangle atlas fallback. **Use properly authored UVs** for real assets; triangle-atlas padding and texel density are poor.
 - No dedicated UV padding/dilation or mipmap-generation pass yet; high-contrast UV seams may still be visible.
 - Project files currently embed nonindexed triangle arrays; large scenes may produce large save files.
@@ -106,7 +106,7 @@ The model is converted to an **object-space, centered/scaled preview mesh** for 
 | Height | Layer-composited painted relief field (neutral 0.5) |
 | AO | Local, distance-limited ray visibility |
 | Curvature | Vertex-neighborhood convexity estimate (0.5 neutral) |
-| Position | Object-space position; raw authoring buffer uses float. The PNG currently clips negative values and is **not** a normalized exchange map. |
+| Position | Object-space position; raw authoring buffer uses float. The exported PNG is normalized to the preview mesh bounding box (0–1 per axis). |
 | WorldNormal | Object-space normal direction encoded 0..1 |
 | Thickness | Approximate inward hit distance |
 | BentNormal | Averaged unoccluded ray direction |
