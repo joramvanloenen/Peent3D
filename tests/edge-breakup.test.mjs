@@ -32,9 +32,9 @@ test('GLSL band must not clamp the upper bound below 1',()=>{
 });
 
 test('edge-wear contrast is applied after combining soft distance and grunge',()=>{
-  const start=shader.indexOf('if(uMask==1){\n   if(uBreakup>0.)result=transitionBreakup(result,fine,convex);');
-  assert.ok(start>=0,'Edge wear should combine grunge first');
-  const section=shader.slice(start,start+260);
+  const match=shader.match(/if\(uMask==1\)\{\s*if\(uBreakup>0\.\)result=transitionBreakup\(result,fine,convex\);\s*result=clamp\(/);
+  assert.ok(match,'Edge wear must combine soft distance and grunge before applying contrast');
+  const section=shader.slice(match.index,match.index+260);
   assert.match(section,/transitionBreakup\(result,fine,convex\);\s*result=clamp\(\(result-\.5\)\*uContrast\+\.5,0\.,1\.\);/);
   assert.match(shader,/convex=softWearDistance\(edges\.r,uEdgeDistance,uSoftness\)/);
   assert.match(shader,/float breakupNoise=smoothstep\(\.5-softness,\.5\+softness,grunge\)/);
