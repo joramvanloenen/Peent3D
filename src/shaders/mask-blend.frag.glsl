@@ -16,5 +16,6 @@ void main(){
  else if(uMode==3)value=base*(1.-mask*a);
  else if(uMode==4)value=max(base,mask*a);
  else if(uMode==5)value=min(base,mix(1.,mask,a));
+ else if(uMode==6)value=mask*a; // first effect uses actual opacity, not white identity
  frag=vec4(vec3(clamp(value,0.,1.)),1.);
 }
