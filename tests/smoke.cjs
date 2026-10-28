@@ -33,6 +33,22 @@ const path = require('node:path');
     await edgeInput.press('Tab');
     await page.waitForTimeout(350);
     assert.equal(await edgeInput.inputValue(),'0.07');
+    // Smart mask UV seam fixing is enabled by default, remains configurable,
+    // and must not trigger shader/feedback-loop errors while recompositing.
+    const seamToggle=page.locator('#seam-fix-enabled');
+    await seamToggle.waitFor({state:'visible'});
+    assert.equal(await seamToggle.isChecked(),true);
+    const seamRadius=page.locator('.number-control:has(label:text-is("Seam blend width (px)")) input[type=number]');
+    assert.equal(await seamRadius.inputValue(),'3.5');
+    await seamRadius.fill('5');
+    await seamRadius.press('Tab');
+    assert.equal(await seamRadius.inputValue(),'5');
+    await seamToggle.uncheck();
+    await page.waitForTimeout(180);
+    await seamToggle.check();
+    await seamRadius.fill('3.5');
+    await seamRadius.press('Tab');
+    await page.waitForTimeout(400);
     // Every generator exposes an Angle Threshold. Check per-effect isolation and
     // multiple masks/blend modes on one material, not just an extra material layer.
     const initialCount=await page.locator('.mask-stack-item').count();
