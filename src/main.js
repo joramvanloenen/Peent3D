@@ -29,13 +29,13 @@ const maskDescription={
 };
 const PARAM_DEFAULTS=Object.freeze({
  roughness:.58,metallic:0,height:0,opacity:1,scale:3,variation:.08,
- contrast:1.5,breakup:.12,breakupScale:1,edgeDistance:.038,angleThreshold:22,
+ contrast:1.5,breakup:.12,breakupScale:1,breakupHardness:.58,breakupPosition:.53,breakupWidth:.60,edgeDistance:.038,angleThreshold:22,
  softness:.36,density:.38,length:.85,width:.035,direction:25,
  gravity:1,cavity:.65,aoProtect:.35,topBias:.74,seed:0
 });
 const GENERATOR_DEFAULTS={
  0:{contrast:1,breakup:0},
- 1:{edgeDistance:.038,angleThreshold:20,softness:.32,contrast:1.6,breakup:.12,breakupScale:1.8,aoProtect:.30,scale:4.4},
+ 1:{edgeDistance:.038,angleThreshold:20,softness:.32,contrast:1.6,breakup:.58,breakupScale:1.8,breakupHardness:.68,breakupPosition:.53,breakupWidth:.63,aoProtect:.30,scale:4.4},
  2:{edgeDistance:.055,angleThreshold:18,softness:.5,contrast:1.4,breakup:.18,scale:3},
  3:{contrast:1.1,breakup:.12,scale:2.7},
  4:{contrast:1.1,breakup:.12,scale:2},
@@ -74,7 +74,10 @@ let selected=layers.at(-1)?.id;
 let tool='orbit',uvTab=false,painting=false,lastPaintPoint=null;
 let brushRadius=.17,brushHardness=.55,brushStrength=.72;
 const BRUSH_DEFAULTS={brushRadius:.17,brushHardness:.55,brushStrength:.72};
-let scheduled=false,busy=false;
+let scheduled=false,busy=false,settleTimer=null;
+const PREVIEW_SETTLE_MS=210;
+const channelForField={color:'baseColor',roughness:'roughness',metallic:'metalness',height:'height'};
+const materialFields=new Set(['color','roughness','metallic','height','opacity','visible','name','projection','variation']);
 let imageTarget=null;
 const imageFile=document.createElement('input');
 imageFile.type='file';imageFile.accept='image/png,image/jpeg,image/webp';imageFile.hidden=true;
@@ -99,12 +102,28 @@ try{
 gpu.layers=layers;
 function status(message){$('status').textContent=message;}
 function currentLayer(){return layers.find(l=>l.id===selected);}
-function mark(index=0){
- gpu.markDirty(index);
+function mark(index=0,field=null){
+ // Only masks or procedural parameters need smart-generator evaluation.
+ // A roughness slider must not regenerate edge wear, AO-derived dirt, etc.
+ const smart=field===null||!materialFields.has(field);
+ gpu.markDirty(index,{smart,channel:channelForField[field]||null});
  if(!scheduled){
   scheduled=true;
-  requestAnimationFrame(()=>{scheduled=false;gpu.compose(layers);refreshPreview();});
+  requestAnimationFrame(()=>{
+   scheduled=false;
+   if(busy)return;
+   gpu.compose(layers,true);  // fast preview; no 20-pass UV dilation or normal bake
+   refreshPreview();
+  });
  }
+ // Pay the full-quality normalization/padding cost ONCE after scrubbing ends.
+ clearTimeout(settleTimer);
+ settleTimer=setTimeout(()=>{
+  if(busy)return;
+  // Leave the GPU result untouched if values did not change, and only regenerate padding.
+  gpu.compose(layers,false);
+  refreshPreview();
+ },PREVIEW_SETTLE_MS);
 }
 function refreshPreview(){
  gpu.selectedLayerId=selected;
@@ -181,7 +200,7 @@ function renderProperties(){
   const value=Number(layer[field]??PARAM_DEFAULTS[field]??0);
   const resetValue=(GENERATOR_DEFAULTS[layer.mask]||{})[field]??PARAM_DEFAULTS[field]??value;
   root.append(numericControl({name,value,min,max,step,defaultValue:resetValue,
-   onChange:v=>{layer[field]=v;mark(layers.indexOf(layer));}}));
+   onChange:v=>{layer[field]=v;mark(layers.indexOf(layer),field);}}));
  }
  function dropdown(name,field,options,callback=null){
   const el=document.createElement('select');
@@ -219,8 +238,16 @@ function renderProperties(){
  if(layer.mask!==0){
   slider('Contrast','contrast',.2,8,.05);
   if([1,2,3,4,5,6,7,10,11].includes(layer.mask)){
-   slider('Grunge breakup','breakup',0,1,.01);
+   slider(layer.mask===1?'Breakup intensity':'Grunge intensity','breakup',0,1,.01);
+   slider('Breakup hardness','breakupHardness',0,1,.01);
    slider('Grunge scale','breakupScale',.2,8,.1);
+   if(layer.mask===1){
+    slider('Breakup position','breakupPosition',.05,.95,.01);
+    slider('Breakup band width','breakupWidth',.05,.95,.01);
+    const info=document.createElement('p');info.className='property-help';
+    info.textContent='Noise chips only the partially worn edge transition. Fully worn edge cores remain untouched. Position moves the breakup toward or away from the edge; width controls how much of the transition is affected.';
+    root.append(info);
+   }
   }
   if([1,2,10].includes(layer.mask)){
    slider('Edge distance','edgeDistance',.002,.3,.001);
