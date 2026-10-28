@@ -46,8 +46,8 @@ float traceMesh(vec3 origin,vec3 dir,float limit){
   vec4 a=fetchNode(id*3);
   vec4 b=fetchNode(id*3+1);
   if(!boxHit(origin,dir,a.xyz,b.xyz,closest))continue;
-  int left=int(a.w+.5);
-  int right=int(b.w+.5);
+  int left=int(round(a.w));
+  int right=int(round(b.w));
   if(left<0){
    vec4 m=fetchNode(id*3+2);
    int first=int(m.x+.5),count=int(m.y+.5);
