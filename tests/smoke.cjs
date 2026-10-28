@@ -33,6 +33,36 @@ const path = require('node:path');
     await edgeInput.press('Tab');
     await page.waitForTimeout(350);
     assert.equal(await edgeInput.inputValue(),'0.07');
+    const controls={
+      'Breakup intensity':'0.73',
+      'Breakup hardness':'0.92',
+      'Breakup position':'0.61',
+      'Breakup band width':'0.46'
+    };
+    for(const [name,value] of Object.entries(controls)){
+      const field=page.locator('.number-control').filter({has:page.locator('label',{hasText:name})});
+      const input=field.locator('input[type=number]');
+      await input.fill(value);
+      await input.press('Tab');
+      assert.equal(await input.inputValue(),value,'Control not retained: '+name);
+    }
+    // Exercise a burst of changes without requiring costly work for every input.
+    const burstStart=Date.now();
+    await page.evaluate(()=>{
+      const field=[...document.querySelectorAll('.number-control')].find(el=>el.querySelector('label')?.textContent==='Breakup position');
+      const slider=field.querySelector('input[type=range]');
+      for(let i=0;i<25;i++){
+        slider.value=String(.35+i*.01);
+        slider.dispatchEvent(new Event('input',{bubbles:true}));
+      }
+    });
+    assert.ok(Date.now()-burstStart<12000,'Slider event handling must not synchronously bake every change');
+    await page.waitForTimeout(900);
+    const position=page.locator('.number-control').filter({has:page.locator('label',{hasText:'Breakup position'})});
+    assert.equal(await position.locator('input[type=number]').inputValue(),'0.59');
+    await position.locator('button.reset').click();
+    assert.equal(await position.locator('input[type=number]').inputValue(),'0.53');
+    await page.waitForTimeout(450);
     await page.screenshot({path:path.join(__dirname,'smoke-edge.png'),timeout:20000});
     await page.locator('#channel-view').selectOption('smartMask');
     for(const mask of ['8','9','10','11','12']){
