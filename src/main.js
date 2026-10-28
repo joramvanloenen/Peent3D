@@ -372,7 +372,9 @@ function renderProperties(){
    // use maximum surface tilt measured from world up (180° = unrestricted).
    slider('Angle threshold','angleThreshold',0,180,1,effect);
    const angleHelp=document.createElement('p');angleHelp.className='property-help';
-   angleHelp.textContent=EDGE_ANGLE_TYPES.has(effect.mask)
+   angleHelp.textContent=[8,9].includes(effect.mask)
+     ?'Sources are always physical upper edges/ledges. Minimum edge angle; 180° means no angle filtering for legacy projects.'
+     :EDGE_ANGLE_TYPES.has(effect.mask)
      ?'Minimum face-to-face angle for real convex/concave geometry. UV seams and coplanar edges are ignored.'
      :'Maximum permitted surface angle from upward. 180° means unrestricted.';
    root.append(angleHelp);

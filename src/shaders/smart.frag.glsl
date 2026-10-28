@@ -123,7 +123,7 @@ float runoffField(vec3 p,vec3 n){
    int infoIndex=aIndex+2;
    vec4 info=texelFetch(uRunoffSegments,ivec2(infoIndex%uRunoffWidth,infoIndex/uRunoffWidth),0);
    // Only real eligible upper edges can seed a stain.
-   if(info.z+1e-3<uAngleThreshold)continue;
+   if(uAngleThreshold<179.5 && info.z+1e-3<uAngleThreshold)continue; // 180 = unrestricted on legacy streak masks
    float random=hash21(vec2(b.w,uSeed));
    if(random>uDensity)continue;
    vec3 v=b.xyz-a.xyz;
