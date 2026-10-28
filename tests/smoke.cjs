@@ -34,10 +34,13 @@ const path = require('node:path');
     await page.waitForTimeout(350);
     assert.equal(await edgeInput.inputValue(),'0.07');
     await page.screenshot({path:path.join(__dirname,'smoke-edge.png'),timeout:20000});
+    await page.locator('#channel-view').selectOption('smartMask');
     for(const mask of ['8','9','10','11','12']){
       await generator.selectOption(mask);
-      await page.waitForTimeout(150);
+      await page.waitForTimeout(350);
+      await page.screenshot({path:path.join(__dirname,'smoke-mask-'+mask+'.png'),timeout:20000});
     }
+    await page.locator('#channel-view').selectOption('material');
     const accent=await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--accent').trim());
     assert.equal(accent,'#f28c40');
     const scroll=await page.locator('.inspector').evaluate(el=>{
