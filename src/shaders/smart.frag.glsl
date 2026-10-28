@@ -150,7 +150,7 @@ float transitionBreakup(float coverage,float grunge,float edgeCoverage){
 void main(){
  vec4 pos=texture(uPosition,vUv);
  if(pos.a<.5){frag=vec4(0.);return;}
- if(uMask==0){frag=vec4(1.);return;} // Full fills do not need 3D noise or ray data.
+ // Even a full-fill mask may use the optional orientation angle threshold.
  vec3 p=pos.xyz;
  vec3 n=normalize(texture(uNormal,vUv).rgb*2.-1.);
  float result=1.;
@@ -201,6 +201,14 @@ void main(){
      float softness=mix(.28,.012,clamp(uBreakupHardness,0.,1.));
      result*=mix(1.,smoothstep(.5-softness,.5+softness,fine),uBreakup);
    }
+ }
+ // For edge-aware masks this parameter is a minimum real dihedral angle,
+ // already applied when generating the 3D feature-distance atlas. For other
+ // masks it limits surface tilt from object-space Y up (180° = unrestricted).
+ if(uMask!=1&&uMask!=2&&uMask!=9&&uMask!=10&&uMask!=11&&uAngleThreshold<179.5){
+   float tilt=degrees(acos(clamp(n.y,-1.,1.)));
+   float cutoff=1.-smoothstep(max(0.,uAngleThreshold-3.),uAngleThreshold+3.,tilt);
+   result*=cutoff;
  }
  if(uInvert==1)result=1.-result;
  frag=vec4(vec3(clamp(result,0.,1.)),1.);
