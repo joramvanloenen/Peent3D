@@ -2,7 +2,7 @@
 
 **Peent3D** is an early-stage, GPU-based texture authoring application for **Windows**, designed for **low-poly meshes**. It runs as an Electron desktop application with a WebGL2 GPU backend, Three.js PBR preview, reusable UV-space mesh data, and a layer-based material editor.
 
-> **Status: v0.2.9 experimental preview, validated with Windows WebGL2 GUI smoke tests.** This repository is a substantial initial implementation, **not** feature-parity with Adobe Substance 3D Painter. Test the baker on your own meshes before depending on exported data. No commercial licensing or compatibility with Adobe is implied.
+> **Status: v0.3.0 experimental preview, validated with Windows WebGL2 GUI smoke tests.** This repository is a substantial initial implementation, **not** feature-parity with Adobe Substance 3D Painter. Test the baker on your own meshes before depending on exported data. No commercial licensing or compatibility with Adobe is implied.
 
 ## What is implemented
 
@@ -20,6 +20,7 @@
 - **UV-seam-safe edge distances**: feature edges are identified in welded *3D geometry* (not UV borders). A spatial index selects nearby true feature segments, and GPU baking evaluates exact finite-segment distance at each surface texel. Shared corners and UV-island splits no longer truncate the distance field. Nearby disconnected meshes are excluded, and angle-specific maps are cached.
 - **Topology-based hard-edge baker**: identifies signed convex and concave dihedral angles across shared mesh edges, unaffected by UV seams. Stores **physical edge distance** in normalized model-space units; independent of texture resolution.
 - **Standalone Signed Mean Curvature smart mask** (generator 13): welded 3D cotangent-weighted Laplace–Beltrami estimate, robust per-vertex area normalization, signed convex/concave detection and three edge-aware smoothing scales. Smoothing/cutoff/intensity/region are independently editable per mask. This is **separate from** the legacy curvature and topology-driven edge distance maps.
+- **Geometry-seeded runoff for leaks and streaks**: emitters exist only on actual upper/open mesh edges and ledges. Deterministic particles descend along gravity projected into mesh triangles, crossing welded triangle adjacency without starting afresh at UV seams, with mild capillary drift, source beads, width variation and distance-dependent taper. Angle, Density, Length, Width, Gravity, and Cavity controls influence the finished mask. The flow field is baked once on mesh import, then sampled on the GPU during mask editing. This is a lightweight *surface-flow approximation*, not a fluid-dynamics simulation with pressure, free-surface effects or splashing.
 - **13 GPU procedural smart-mask generators**: convex edge wear, concave crevices, AO dirt, height gradients, thin parts, grunge, gravity streaks, leaks/drips, oxidation, deposited dust, and directional natural scratches.
 - **Edge wear controls**: Edge Distance, Angle Threshold, softness, AO protection, **Breakup intensity**, **Breakup hardness**, **Breakup position** (0–1), and **Breakup band width** (0.01–2). The baker now evaluates **soft edge-distance falloff and soft procedural grunge first, combines them in the selected breakup band, then applies Contrast to the combined result** (rather than contrasting the edge mask before breakup). The breakup band extends beyond the [0,1] coverage limits when positioned at an edge, allowing noise to erode **100% worn edge cores**. Defaults retain clean solid edge cores. Move Position to 1 to allow breakup all the way to the physical edge.
 - Other generators expose density, line width, length, gravity, top bias, and cavity influence as appropriate.
@@ -89,6 +90,7 @@ The browser build can download ZIP/project files. The Electron build opens a nat
 src/geometry.js                 UV/geometry preparation, vertex curvature, BVH
 src/edge.js                     Welded 3D topology, signed dihedral features and local segment spatial index
 src/curvature.js                Cotangent discrete signed mean curvature, robust normalization and edge-aware multi-scale smoothing
+src/runoff.js                   Topology-seeded surface particle advection, upper-ledge emitters and continuous downhill paths
 src/mask-presets.js             21 curated procedural mask recipes plus validated custom preset storage
 src/mask-preset-browser.js      Searchable preview gallery, category filters and apply/save/delete interactions
 src/gpu.js                      GPU raster passes, ray baking, layer cache, painting, export
@@ -164,3 +166,11 @@ The geometry is welded by 3D position within each submesh before computing cotan
 Select any material layer, then click **▦ Presets** beside the smart-mask add controls. Filter by Wear, Weathering, Dirt, Surface, Curvature or My presets, or search by a preset name, effect or tag. Click a preview card to see its mask stack and description. Double-click a card to add, or use **＋ Add to stack** to preserve your current mask stack, or **Replace stack** to replace just the procedural masks. Every effect remains fully adjustable after applying a recipe.
 
 To save your own preset, open the browser, choose **＋ Save current masks**, enter a name, and choose **Save selected mask** or **Save entire stack**. Saved recipes remain available in **My presets** across app restarts (within the same local application profile) and can be deleted. The small grayscale previews are illustrative rather than a GPU bake of your particular model; the real result appears in the viewport after application. Custom presets are local to the app and are not synced to GitHub or other devices.
+
+## Edge-anchored leaks and gravity streaks
+
+The **Leaks / drips** and **Gravity streaks** generators no longer scatter independent drip rows down the middle of arbitrary faces. Peent3D detects upper boundary edges or geometric ledges on the imported, welded 3D mesh (without treating UV island boundaries or internal coplanar triangulation edges as sources). It seeds deterministic particles along those sources and transports them across adjacent surface triangles in the projected-gravity direction. Surface-flow segments are packed into a compact GPU atlas indexed by source triangle and reused across editable mask parameters.
+
+**Density** selects how many precomputed source particles are active. **Length** limits the travel distance from the top source and produces varied trail endings. **Line Width** changes the width of the core and its surrounding moisture halo. **Gravity** controls limited lateral capillary drift. **Angle Threshold** filters source creases (180° is treated as unrestricted for compatibility with older streak presets). **Cavity influence** adjusts how strongly sheltered areas retain leaking material. Since paths are attached to the actual mesh, open upper rims, overhangs and roof-to-wall transitions can emit stains, while smooth coplanar seams and the middle of a wall cannot. Non-manifold edges are excluded as ambiguous sources.
+
+This approximates particle advection and surface adhesion for static texture authoring. It does not simulate full Navier–Stokes dynamics, droplets detaching into free space, or rivulets merging. Some very complex imported meshes can reach the per-triangle flow-candidate budget; the most prominent traces are retained.
