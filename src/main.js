@@ -22,8 +22,8 @@ const maskDescription={
  5:'Soft height gradient toward the bottom of the asset.',
  6:'Inward ray thickness approximation highlights thin parts.',
  7:'Layered 3D coherent noise suitable for organic wear.',
- 8:'Thin gravity-aligned streaks on vertical surfaces, with variable length and spacing.',
- 9:'Localized drips guided by cavity/edge information and gravity.',
+ 8:'Gravity-driven surface stains seeded only at upper mesh edges and ledges, with continuous downhill traces across connected triangles.',
+ 9:'Surface-following droplets emitted from upper geometry edges, with source beads, realistic taper and gentle capillary drift. No arbitrary mid-wall starts.',
  10:'Patchy, cavity-biased oxidation with secondary leaking and micro-corrosion.',
  11:'Soft upward-facing deposition, reinforced around occluded corners.',
  12:'Sparse, directional, variable-length micro-scratches projected in object space.',
@@ -45,8 +45,8 @@ const GENERATOR_DEFAULTS={
  5:{contrast:1.1,breakup:.12,scale:2},
  6:{contrast:1.2,breakup:.12,scale:3},
  7:{contrast:1.8,breakup:0,scale:2.1},
- 8:{contrast:1.0,breakup:0,scale:1.15,density:.28,length:2.0,width:.105,direction:0},
- 9:{contrast:1.0,breakup:0,scale:1.25,density:.23,length:1.95,width:.10,direction:0,cavity:.75},
+ 8:{angleThreshold:18,contrast:1.25,breakup:0,scale:1.15,density:.48,length:2.3,width:.075,direction:0},
+ 9:{angleThreshold:18,contrast:1.12,breakup:0,scale:1.25,density:.37,length:2.6,width:.095,direction:0,cavity:.6},
  10:{contrast:1.0,breakup:.14,breakupScale:2.4,scale:3.0,density:.25,length:1.55,width:.095,cavity:.82},
  11:{contrast:1.10,breakup:.14,scale:2.1,topBias:.74,cavity:.32},
  12:{contrast:1.0,breakup:0,scale:1.55,density:.18,length:1.28,width:.040,direction:26},
@@ -68,7 +68,7 @@ const MASK_PARAMS=['scale','seed','contrast','breakup','breakupScale','breakupHa
  'breakupPosition','breakupWidth','edgeDistance','angleThreshold','softness','density',
  'length','width','direction','gravity','cavity','aoProtect','topBias','maskInvert',
  'meanCurvatureRegion','meanCurvatureSmoothing','meanCurvatureCutoff','meanCurvatureIntensity'];
-const EDGE_ANGLE_TYPES=new Set([1,2,9,10,11]);
+const EDGE_ANGLE_TYPES=new Set([1,2,8,9,10,11]);
 function createMaskEntry(type=1,partial={},legacy=false){
  const defaults={...PARAM_DEFAULTS,...(GENERATOR_DEFAULTS[type]||{}),
    angleThreshold:EDGE_ANGLE_TYPES.has(type)?20:180};
@@ -398,6 +398,11 @@ function renderProperties(){
      }
      if(effect.mask===1)slider('AO protection','aoProtect',0,1,.01,effect);
      if([8,9,10,12].includes(effect.mask)){
+       if(effect.mask===8||effect.mask===9){
+         const help=document.createElement('p');help.className='property-help';
+         help.textContent='Streams emit only from upper geometric edges/ledges and follow downhill face adjacency. Density selects source particles; Length controls travel distance.';
+         root.append(help);
+       }
        slider('Density','density',0,1,.01,effect);
        slider('Length','length',.05,4,.01,effect);
        slider('Line width','width',.004,.4,.002,effect);
