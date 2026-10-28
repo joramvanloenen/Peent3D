@@ -26,5 +26,5 @@ jobs:
         if: always()
         with:
           name: Peent3D-Rendered-Smoke
-          path: tests/smoke.png
+          path: tests/smoke*.png
           if-no-files-found: ignore

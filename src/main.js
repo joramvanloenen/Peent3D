@@ -468,5 +468,5 @@ if(new URLSearchParams(location.search).get('smoke')==='1'){
 gpu.setGeometry(new URLSearchParams(location.search).get('smoke')==='1'
   ? prepareScene(new THREE.Mesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshStandardMaterial()),'Smoke cube')
   : createDemoMesh());
-$('mesh-info').textContent='Demo torus knot · '+gpu.model.triangleCount.toLocaleString()+' tris';
+$('mesh-info').textContent=gpu.model.name+' · '+gpu.model.triangleCount.toLocaleString()+' tris';
 bake();

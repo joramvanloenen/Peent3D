@@ -33,6 +33,7 @@ const path = require('node:path');
     await edgeInput.press('Tab');
     await page.waitForTimeout(350);
     assert.equal(await edgeInput.inputValue(),'0.07');
+    await page.screenshot({path:path.join(__dirname,'smoke-edge.png'),timeout:20000});
     for(const mask of ['8','9','10','11','12']){
       await generator.selectOption(mask);
       await page.waitForTimeout(150);

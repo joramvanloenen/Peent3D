@@ -55,7 +55,8 @@ export class PeentGPU {
     this.scene.add(new THREE.HemisphereLight(0xcad8ec,0x28313c,2.2));
     const key=new THREE.DirectionalLight(0xffedd9,3.0);key.position.set(3,6,4);this.scene.add(key);
     const fill=new THREE.DirectionalLight(0x9bcade,1.3);fill.position.set(-5,2,-3);this.scene.add(fill);
-    this.scene.add(new THREE.GridHelper(8,16,0x34434d,0x26323c));
+    this.grid=new THREE.GridHelper(8,16,0x3b3b3b,0x303030);
+    this.scene.add(this.grid);
     this.previewMaterial=new THREE.MeshStandardMaterial({color:0xffffff,metalness:0,roughness:.65,side:THREE.DoubleSide});
     this.uvScene=new THREE.Scene();
     this.quadScene=new THREE.Scene();
@@ -109,6 +110,8 @@ export class PeentGPU {
     for(const rt of this.paintMasks.values())rt.dispose();
     this.paintMasks.clear();
     this.model=result;
+    // Keep the reference grid BELOW the model instead of cutting through geometry.
+    this.grid.position.y=result.geometry.boundingBox.min.y-.05;
     this.mesh=new THREE.Mesh(result.geometry,this.previewMaterial);
     this.mesh.frustumCulled=false;
     this.scene.add(this.mesh);

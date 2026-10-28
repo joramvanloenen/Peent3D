@@ -35,6 +35,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Peent3D-GUI-Smoke
-          path: tests/smoke.png
+          path: tests/smoke*.png
           if-no-files-found: ignore
 
