@@ -23,7 +23,7 @@ function newLayer(partial={}){
     id:'layer-'+(nextId++),name:'New material',
     color:'#8c929b',roughness:.58,metallic:0,height:0,
     opacity:1,scale:3,contrast:2,variation:.26,seed:Math.random()*100,
-    projection:'triplanar',mask:0,visible:true
+    projection:'triplanar',mask:0,breakup:.25,maskInvert:false,imageData:null,visible:true
   },partial);
 }
 let layers=[newLayer(presets[0]),newLayer(presets[1]),newLayer(presets[2]),newLayer(presets[3])];
@@ -31,6 +31,19 @@ let selected=layers.at(-1)?.id;
 let tool='orbit',uvTab=false,painting=false,lastPaintPoint=null;
 let brushRadius=.17,brushHardness=.55,brushStrength=.72;
 let scheduled=false,busy=false;
+let imageTarget=null;
+const imageFile=document.createElement('input');imageFile.type='file';imageFile.accept='image/png,image/jpeg,image/webp';imageFile.hidden=true;document.body.append(imageFile);
+imageFile.addEventListener('change',async()=>{
+ const file=imageFile.files?.[0];imageFile.value='';
+ const layer=layers.find(l=>l.id===imageTarget);
+ if(!file||!layer)return;
+ if(file.size>16*1024*1024){status('Image exceeds 16 MiB');return;}
+ try{
+  const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(reader.error);reader.readAsDataURL(file);});
+  layer.imageData=data;layer.color='#ffffff';await gpu.setLayerImage(layer);
+  mark(layers.indexOf(layer));renderLayers();renderProperties();status('Loaded image fill: '+file.name);
+ }catch(error){status('Image import failed: '+error.message);}
+});
 let gpu;
 try {
   gpu=new PeentGPU($('viewport'));
@@ -110,7 +123,7 @@ function renderProperties(){
       if(String(layer[field])===String(value))opt.selected=true;
       el.append(opt);
     }
-    row(name,el,value=>layer[field]=typeof layer[field]==='number'?Number(value):value,'change');
+    row(name,el,value=>layer[field]=typeof layer[field]==='number'?Number(value):typeof layer[field]==='boolean'?value==='true':value,'change');
   }
   section('Material');
   textInput('Name','name');colorInput();
@@ -119,12 +132,18 @@ function renderProperties(){
   slider('Relief height','height',-.45,.45,.005);
   slider('Opacity','opacity',0,1,.01);
   section('Projection & detail');
+  const imageRow=document.createElement('div');imageRow.className='row';
+  imageRow.append(button(layer.imageData?'Replace image':'Load image',()=>{imageTarget=layer.id;imageFile.click();}),
+    button('Clear',()=>{layer.imageData=null;gpu.setLayerImage(layer).then(()=>mark(layers.indexOf(layer)));renderProperties();}));
+  root.append(imageRow);
   dropdown('Projection','projection',[['Triplanar','triplanar'],['UV','uv']]);
   slider('Pattern scale','scale',.1,20,.1);
   slider('Variation','variation',0,1,.01);
   section('Smart mask');
   dropdown('Mask generator','mask',masks);
   slider('Mask contrast','contrast',.2,8,.1);
+  slider('Grunge breakup','breakup',0,1,.01);
+  dropdown('Mask invert','maskInvert',[['Normal',false],['Inverted',true]]);
   const hint=document.createElement('p');hint.className='property-help';
   hint.textContent='Smart masks use baked AO, curvature, thickness and position maps. Paint/erase modifies this layer’s editable mask in 3D, including across UV seams.';
   root.append(hint);
@@ -313,6 +332,8 @@ $('project-file').onchange=async e=>{
     nextId=Math.max(nextId,...layers.map(l=>Number(l.id.split('-').at(-1))||0))+1;
     selected=layers.at(-1)?.id;
     gpu.layers=layers;
+    gpu.clearLayerImages();
+    for(const layer of layers)if(layer.imageData)await gpu.setLayerImage(layer);
     $('resolution').value=data.resolution;
     $('samples').value=data.samples;
     $('ray-distance').value=data.distance;

@@ -12,8 +12,8 @@
 - GPU raster baking of **object-space position**, **world/object-space normals**, **curvature estimate**, **mesh/material ID**, **elevation**, **flat tangent normals**, and **surface coverage**.
 - GPU fragment-shader BVH ray tracing for ambient occlusion, approximate thickness and bent normals; ray samples and distance configurable.
 - Procedural PBR **fill layers** (base color, roughness, metallic, relief height) with visibility, opacity, reordering and per-channel GPU compositing.
-- UV and **triplanar procedural noise** sampled from baked 3D position/normal data.
-- Smart masks: convex edge wear, concave regions, AO dirt, upper/lower gradient, thin areas, and 3D noise.
+- UV and **triplanar projection** for image-based color Fill Layers and procedural noise using baked 3D position/normal data.
+- Smart masks: convex edge wear, concave regions, AO dirt, upper/lower gradient, thin areas, and 3D noise. Masks support invert/contrast and procedural grunge breakup.
 - Per-layer editable **GPU paint/erase masks** using 3D position and normal maps; strokes can cross UV seams.
 - Basic height-to-normal conversion, roughness and metallic maps.
 - PNG exports of material and baked maps in one ZIP archive.
@@ -24,7 +24,7 @@
 
 - No high-to-low poly projection, cages or skew correction (intentionally excluded).
 - No high-poly-derived tangent-space normal or displacement details. **The geometry normal baker returns flat tangent normals**; painted height generates an approximate tangent-space normal texture.
-- No UDIM/multiple texture sets, PBR material texture imports, layer folders, shader graphs, clone/stencil/decals, symmetry, sophisticated brush dynamics, layer undo, paint-stroke undo, or layer-to-layer anchor references.
+- No UDIM/multiple texture sets, complete multichannel PBR texture imports (color image only), layer folders, shader graphs, clone/stencil/decals, symmetry, sophisticated brush dynamics, layer undo, paint-stroke undo, or layer-to-layer anchor references.
 - Curvature is a **vertex-neighborhood approximation**, not a high-resolution multi-scale curvature baker.
 - AO/bent normal and thickness are GPU mesh-ray queries calculated at half map resolution, then sampled smoothly. The limited sample count and ray distance make them **local approximations**.
 - Missing UVs use a unique triangle atlas fallback. **Use properly authored UVs** for real assets; triangle-atlas padding and texel density are poor.

@@ -67,7 +67,9 @@ export class PeentGPU {
     this.viewCamera=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
     this.raycaster=new THREE.Raycaster();
     this.size=512;this.sampleCount=16;this.rayDistance=.35;
-    this.maps={};this.composites=[];this.padded={};this.paintMasks=new Map();this.dirtyFrom=0;
+    this.maps={};this.composites=[];this.padded={};this.paintMasks=new Map();this.imageTextures=new Map();
+    this.whiteTexture=new THREE.DataTexture(new Uint8Array([255,255,255,255]),1,1,THREE.RGBAFormat);this.whiteTexture.needsUpdate=true;
+    this.dirtyFrom=0;
     this.view='3d';this.channel='material';this.layers=[];
     this.gpuName=this.renderer.getContext().getParameter(this.renderer.getContext().RENDERER)||'WebGL2';
     this._resizer=new ResizeObserver(()=>this.resize());
@@ -212,6 +214,7 @@ export class PeentGPU {
       uPosition:U(this.maps.position.texture),uNormal:U(this.maps.worldNormal.texture),
       uCurvature:U(this.maps.curvature.texture),uAO:U(this.maps.ao.texture),
       uThickness:U(this.maps.thickness.texture),uPaint:U(null),
+      uImage:U(this.whiteTexture),uHasImage:U(0),uBreakup:U(0),uInvert:U(0),
       uMode:U(0),uHasPrevious:U(0),uMask:U(0),uProjection:U(1),
       uColor:U(new THREE.Color()),uRoughness:U(.6),uMetallic:U(0),uHeight:U(0),
       uOpacity:U(1),uScale:U(1),uContrast:U(1),uSeed:U(0),uStrength:U(.3),
@@ -235,6 +238,11 @@ export class PeentGPU {
         uniforms.uPrevious.value=previous;
         uniforms.uHasPrevious.value=previous?1:0;
         uniforms.uPaint.value=this._mask(layer).texture;
+        const img=this.imageTextures.get(layer.id);
+        uniforms.uImage.value=img||this.whiteTexture;
+        uniforms.uHasImage.value=img?1:0;
+        uniforms.uBreakup.value=layer.breakup??0;
+        uniforms.uInvert.value=layer.maskInvert?1:0;
         uniforms.uMode.value=channel;
         uniforms.uMask.value=layer.mask;
         uniforms.uProjection.value=layer.projection==='triplanar'?1:0;
@@ -396,6 +404,18 @@ export class PeentGPU {
     }
     return files;
   }
+  async setLayerImage(layer){
+    const old=this.imageTextures.get(layer.id);
+    if(old){old.dispose();this.imageTextures.delete(layer.id);}
+    if(!layer.imageData){this.markDirty(Math.max(0,this.layers.findIndex(x=>x.id===layer.id)));return;}
+    const img=await new Promise((resolve,reject)=>new THREE.TextureLoader().load(layer.imageData,resolve,undefined,reject));
+    img.wrapS=THREE.RepeatWrapping;img.wrapT=THREE.RepeatWrapping;
+    img.colorSpace=THREE.SRGBColorSpace;
+    img.anisotropy=Math.min(8,this.renderer.capabilities.getMaxAnisotropy());
+    img.needsUpdate=true;this.imageTextures.set(layer.id,img);
+    this.markDirty(Math.max(0,this.layers.findIndex(x=>x.id===layer.id)));
+  }
+  clearLayerImages(){for(const image of this.imageTextures.values())image.dispose();this.imageTextures.clear();}
   async capturePaintMasks(){
     const masks={};
     for(const [id,rt] of this.paintMasks.entries())masks[id]=Array.from(await this.mapPNG(rt,2));
@@ -422,6 +442,7 @@ export class PeentGPU {
     this._running=false;this._resizer.disconnect();
     disposeTargets(this.maps);disposeTargets(this.composites);disposeTargets(this.padded);
     this.padScratch?.dispose();
+    this.clearLayerImages();this.whiteTexture.dispose();
     for(const rt of this.paintMasks.values())rt.dispose();
     this.bvh?.dispose();this.normalResult?.dispose();
     this.controls.dispose();this.renderer.dispose();
