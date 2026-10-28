@@ -2,7 +2,7 @@
 
 **Peent3D** is an early-stage, GPU-based texture authoring application for **Windows**, designed for **low-poly meshes**. It runs as an Electron desktop application with a WebGL2 GPU backend, Three.js PBR preview, reusable UV-space mesh data, and a layer-based material editor.
 
-> **Status: v0.2.7 experimental preview, validated with Windows WebGL2 GUI smoke tests.** This repository is a substantial initial implementation, **not** feature-parity with Adobe Substance 3D Painter. Test the baker on your own meshes before depending on exported data. No commercial licensing or compatibility with Adobe is implied.
+> **Status: v0.2.8 experimental preview, validated with Windows WebGL2 GUI smoke tests.** This repository is a substantial initial implementation, **not** feature-parity with Adobe Substance 3D Painter. Test the baker on your own meshes before depending on exported data. No commercial licensing or compatibility with Adobe is implied.
 
 ## What is implemented
 
@@ -13,6 +13,8 @@
 - GPU fragment-shader BVH ray tracing for ambient occlusion, approximate thickness and bent normals; ray samples and distance configurable.
 - Procedural PBR **fill layers** (base color, roughness, metallic, relief height) with visibility, opacity, reordering and per-channel GPU compositing.
 - UV and **triplanar projection** for image-based color Fill Layers and procedural noise using baked 3D position/normal data.
+- **Smart-mask preset browser** with 21 built-in single-mask and multi-mask recipes: categorized tabs (Wear, Weathering, Dirt, Surface, Curvature, My presets), searchable names/tags, illustrative grayscale previews and recipe details. **Add to stack** preserves existing masks; **Replace stack** replaces only the procedural mask effects without changing the material or painted mask. Every generated effect stays individually editable.
+- **Custom presets**: save the selected smart mask or the entire active stack, including opacity, combine modes, generator parameters and effect order. Custom presets live in local app storage across restarts, can be deleted in the browser and are scoped to this application installation.
 - **Multiple smart masks per material layer**: add, remove, enable, select and reorder masks independently. Blend via Replace, Multiply, Add, Subtract, Max or Min, with individual opacity, generator scale, noise seed and mask controls. Existing single-mask `.peent` projects are migrated when opened.
 - **Angle Threshold on every mask**: edge-aware generators use minimum real mesh dihedral angle, while orientation-based generators use maximum angle from object-space up (180° means no filtering). A full-surface mask also supports angular restriction.
 - **UV-seam-safe edge distances**: feature edges are identified in welded *3D geometry* (not UV borders). A spatial index selects nearby true feature segments, and GPU baking evaluates exact finite-segment distance at each surface texel. Shared corners and UV-island splits no longer truncate the distance field. Nearby disconnected meshes are excluded, and angle-specific maps are cached.
@@ -75,7 +77,7 @@ The browser build can download ZIP/project files. The Electron build opens a nat
 1. Import a model with sensible non-overlapping UVs (OBJ or GLB), or start with the built-in torus knot.
 2. Choose a 256–2048 map resolution and AO sample count, then click **Bake mesh maps**.
 3. Choose a material preset using the **New layer preset** selector, then press **＋**. You can also select, reorder or edit existing layers. Drag any slider, type an exact number, or press **↺** to reset one value.
-4. On one material layer use **＋ Mask** to stack multiple geometry-driven generators (edge wear + grunge + leaks, for example). Select a mask to adjust its unique Angle Threshold, scale, seed, opacity and blending. For edge wear, **Edge Distance** sets width in model-space units, unaffected by UV seams. Use **Paint (B)** / **Erase (E)** for edits. **V** orbits; **F** frames.
+4. On one material layer press **▦ Presets** to browse built-in looks, preview the recipe and **Add to stack** or **Replace stack**. Use **＋ Save current masks** to save either the selected mask or the entire editable stack as a custom preset. Alternatively use **＋ Mask** to stack multiple geometry-driven generators (edge wear + grunge + leaks, for example). Select a mask to adjust its unique Angle Threshold, scale, seed, opacity and blending. For edge wear, **Edge Distance** sets width in model-space units, unaffected by UV seams. Use **Paint (B)** / **Erase (E)** for edits. **V** orbits; **F** frames.
 5. Switch to **UV / Map view**, inspect individual channels, including **Signed mean curvature (RGB scales)**, or select **Selected smart mask** to see the mask stack. For the new **Signed mean curvature** generator, choose Convex, Concave, Both or Signed and adjust smoothing, cutoff and intensity.
 6. **Export maps** saves a ZIP of PNG textures. **Save project** keeps your layers, embedded mesh and paint-mask edits.
 
@@ -87,6 +89,8 @@ The browser build can download ZIP/project files. The Electron build opens a nat
 src/geometry.js                 UV/geometry preparation, vertex curvature, BVH
 src/edge.js                     Welded 3D topology, signed dihedral features and local segment spatial index
 src/curvature.js                Cotangent discrete signed mean curvature, robust normalization and edge-aware multi-scale smoothing
+src/mask-presets.js             21 curated procedural mask recipes plus validated custom preset storage
+src/mask-preset-browser.js      Searchable preview gallery, category filters and apply/save/delete interactions
 src/gpu.js                      GPU raster passes, ray baking, layer cache, painting, export
 src/shaders/uv.*                UV-space raster maps
 src/shaders/ray.frag.glsl       GPU BVH traversal for AO, bent normals, thickness
@@ -154,3 +158,9 @@ No license has been selected; reuse permissions are not granted by this README.
 Choose **＋ Mask → Signed mean curvature** on any material layer. This generator uses signed discrete mean curvature, not edge-wear distance or the older curvature heuristic. For a consistently outward-oriented mesh, positive values are convex and negative values concave. **Curvature region** chooses Convex, Concave, Both or Signed (50% grey is flat). **Curvature smoothing** blends the raw, two-iteration and six-iteration edge-aware fields without recalculating geometry when the slider moves. **Curvature cutoff** suppresses weak convex/concave curvature; **Curvature intensity** scales the response. Existing mask-specific Angle Threshold (object-space surface tilt for this generator), Contrast and optional Grunge remain available.
 
 The geometry is welded by 3D position within each submesh before computing cotangent weights, regardless of UV seams and rendering-normal splits. Vertex areas use barycentric area weights; boundary, degenerate and highly obtuse triangles are handled defensively. Values are normalized by a robust 95th percentile and encoded symmetrically into the GPU map (0=concave, 0.5=flat, 1=convex). The baked signed map uses **R/G/B for fine/medium/broad curvature**. The old curvature map is retained for backward compatibility.
+
+## Mask preset browser
+
+Select any material layer, then click **▦ Presets** beside the smart-mask add controls. Filter by Wear, Weathering, Dirt, Surface, Curvature or My presets, or search by a preset name, effect or tag. Click a preview card to see its mask stack and description. Double-click a card to add, or use **＋ Add to stack** to preserve your current mask stack, or **Replace stack** to replace just the procedural masks. Every effect remains fully adjustable after applying a recipe.
+
+To save your own preset, open the browser, choose **＋ Save current masks**, enter a name, and choose **Save selected mask** or **Save entire stack**. Saved recipes remain available in **My presets** across app restarts (within the same local application profile) and can be deleted. The small grayscale previews are illustrative rather than a GPU bake of your particular model; the real result appears in the viewport after application. Custom presets are local to the app and are not synced to GitHub or other devices.
