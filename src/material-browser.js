@@ -54,6 +54,7 @@ function renderMaterialThumbnail(canvas,material){
 }
 export function createMaterialBrowser({starterLayers,getLayers,getSelectedLayer,makeLayer,onApply,onStatus}){
  let stored=[],selected=null,filter='All',query='';
+ let storageBusy=false;
  const overlay=el('div','material-browser-overlay');
  overlay.id='material-browser';overlay.hidden=true;
  overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');
@@ -102,13 +103,20 @@ export function createMaterialBrowser({starterLayers,getLayers,getSelectedLayer,
    render();
  }
  async function persist(updated){
-   const raw=encodeMaterialLibrary(updated);
-   if(window.peentDesktop?.writeMaterialLibrary){
-     const response=await window.peentDesktop.writeMaterialLibrary(raw);
-     if(response.error)throw Error(response.error);
-   }else window.localStorage.setItem(MATERIAL_LIBRARY_KEY,raw);
-   stored=updated;
-   render();
+   if(storageBusy)throw Error('A material library update is already in progress.');
+   storageBusy=true;
+   saveSelected.disabled=true;saveStack.disabled=true;
+   try{
+     const raw=encodeMaterialLibrary(updated);
+     if(window.peentDesktop?.writeMaterialLibrary){
+       const response=await window.peentDesktop.writeMaterialLibrary(raw);
+       if(response.error)throw Error(response.error);
+     }else window.localStorage.setItem(MATERIAL_LIBRARY_KEY,raw);
+     stored=updated;
+     render();
+   }finally{
+     storageBusy=false;saveSelected.disabled=false;saveStack.disabled=false;
+   }
  }
  function open(){
    priorFocus=document.activeElement;
@@ -212,6 +220,8 @@ export function createMaterialBrowser({starterLayers,getLayers,getSelectedLayer,
    if(!recipe.builtin){
      const del=el('button','material-delete','Delete saved material');del.id='material-delete';
      del.onclick=async()=>{
+       if(storageBusy)return;
+       del.disabled=true;
        try{
          await persist(stored.filter(x=>x.id!==recipe.id));
          selected=null;render();onStatus('Deleted material: '+recipe.name);
