@@ -288,8 +288,10 @@ export class PeentGPU {
     };
     if(!this.layerMaterial)this.layerMaterial=shader(quadVert,layerFrag,uniforms);
     const mat=this.layerMaterial;
-    // Reuse the compiled shader program and uniform objects while scrubbing.
-    for(const [name,entry] of Object.entries(uniforms))mat.uniforms[name].value=entry.value;
+    // Update cached uniforms directly; do not mutate temporary objects.
+    const live=mat.uniforms;
+    live.uPosition.value=this.maps.position.texture;
+    live.uNormal.value=this.maps.worldNormal.texture;
     const channelSet=this.dirtyChannels;
     // Compose only dirty layers AND material channels; previous outputs remain cached.
     for(let i=start;i<layers.length;i++){
@@ -298,7 +300,7 @@ export class PeentGPU {
       // Evaluate expensive geometry, weathering and scratch generator ONCE per layer.
       // Four PBR channels reuse this cached GPU smart mask.
       const smart=this._renderSmartMask(layer,geometryBounds);
-      uniforms.uSmartMask.value=smart.texture;
+      live.uSmartMask.value=smart.texture;
       for(let channel=0;channel<CHANNELS.length;channel++){
         const name=CHANNELS[channel];
         if(!channelSet.has(name) && this.composites[i][name])continue;
@@ -310,22 +312,22 @@ export class PeentGPU {
           this._draw(copy,this.composites[i][name]);copy.dispose();
           continue;
         }
-        uniforms.uPrevious.value=previous;
-        uniforms.uHasPrevious.value=previous?1:0;
-        uniforms.uPaint.value=this._mask(layer).texture;
+        live.uPrevious.value=previous;
+        live.uHasPrevious.value=previous?1:0;
+        live.uPaint.value=this._mask(layer).texture;
         const img=this.imageTextures.get(layer.id);
-        uniforms.uImage.value=img||this.whiteTexture;
-        uniforms.uHasImage.value=img?1:0;
-        uniforms.uMode.value=channel;
-        uniforms.uProjection.value=layer.projection==='triplanar'?1:0;
-        uniforms.uColor.value.set(layer.color);
-        uniforms.uRoughness.value=layer.roughness;
-        uniforms.uMetallic.value=layer.metallic;
-        uniforms.uHeight.value=layer.height;
-        uniforms.uOpacity.value=layer.visible?layer.opacity:0;
-        uniforms.uScale.value=layer.scale;
-        uniforms.uSeed.value=layer.seed;
-        uniforms.uStrength.value=layer.variation;
+        live.uImage.value=img||this.whiteTexture;
+        live.uHasImage.value=img?1:0;
+        live.uMode.value=channel;
+        live.uProjection.value=layer.projection==='triplanar'?1:0;
+        live.uColor.value.set(layer.color);
+        live.uRoughness.value=layer.roughness;
+        live.uMetallic.value=layer.metallic;
+        live.uHeight.value=layer.height;
+        live.uOpacity.value=layer.visible?layer.opacity:0;
+        live.uScale.value=layer.scale;
+        live.uSeed.value=layer.seed;
+        live.uStrength.value=layer.variation;
         this._draw(mat,this.composites[i][name]);
       }
     }
