@@ -459,6 +459,14 @@ export class PeentGPU {
     for(const [name,[rt,mode]] of Object.entries(all)){
       if(rt)files[name+'.png']=await this.mapPNG(rt,mode);
     }
+    // Export each authored smart mask for use in Unity or external material workflows.
+    for(let i=0;i<this.layers.length;i++){
+      const layer=this.layers[i];
+      const mask=this.smartMasks.get(layer.id);
+      if(!layer.mask || !mask)continue;
+      const slug=layer.name.replace(/[^a-z0-9_-]+/gi,'_').slice(0,50)||'Mask';
+      files['SmartMask_'+String(i+1).padStart(2,'0')+'_'+slug+'.png']=await this.mapPNG(mask,2);
+    }
     return files;
   }
   async setLayerImage(layer){
