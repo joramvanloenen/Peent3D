@@ -1,0 +1,30 @@
+name: GPU editor smoke test
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  runtime:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+      - name: Launch Electron and test GPU baking
+        run: node tests/smoke.cjs
+        timeout-minutes: 5
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Peent3D-Rendered-Smoke
+          path: tests/smoke.png
+          if-no-files-found: ignore
