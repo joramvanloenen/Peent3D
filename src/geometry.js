@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {OBJLoader} from 'three/addons/loaders/OBJLoader.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {addTopologyEdgeData} from './edge.js';
 
 // All baking geometry is non-indexed: one unambiguous UV, normal and ID per triangle corner.
 export function createDemoMesh() {
@@ -83,7 +84,8 @@ export function prepareScene(root, name = 'Untitled') {
   g.computeBoundingBox();
   g.computeBoundingSphere();
   computeCurvature(g);
-  return {geometry:g, triangleCount, name, missingUVs, meshCount:meshes.length};
+  const edgeStats=addTopologyEdgeData(g);
+  return {geometry:g, triangleCount, name, missingUVs, meshCount:meshes.length,edgeStats};
 }
 
 function computeCurvature(g) {
