@@ -200,6 +200,9 @@ export function createMaskPresetBrowser({getLayer,getSelectedMaskId,makeEffect,o
    }
    const shown=all.filter(p=>(category==='All'||p.category===category)
      &&(!query||[p.name,p.description,p.category,...(p.tags||[])].join(' ').toLowerCase().includes(query)));
+   // Selection always tracks the visible results; don't display details for a
+   // recipe hidden by the active category or search query.
+   if(shown.length&&!shown.some(p=>p.id===chosenId))chosenId=shown[0].id;
    grid.replaceChildren();
    if(!shown.length)grid.append($el('div','preset-empty','No presets found. Try another search or category.'));
    for(const preset of shown){
