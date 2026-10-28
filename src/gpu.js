@@ -6,13 +6,14 @@ import uvFrag from './shaders/uv.frag.glsl?raw';
 import quadVert from './shaders/quad.vert.glsl?raw';
 import rayFrag from './shaders/ray.frag.glsl?raw';
 import layerFrag from './shaders/layer.frag.glsl?raw';
+import smartFrag from './shaders/smart.frag.glsl?raw';
 import brushFrag from './shaders/brush.frag.glsl?raw';
 import normalFrag from './shaders/normal.frag.glsl?raw';
 import copyFrag from './shaders/copy.frag.glsl?raw';
 import padFrag from './shaders/pad.frag.glsl?raw';
 
 const CHANNELS=['baseColor','roughness','metalness','height'];
-const MESH_MAPS=['position','worldNormal','curvature','id','elevation','normal','opacity'];
+const MESH_MAPS=['position','worldNormal','curvature','id','elevation','normal','opacity','edges'];
 export const MAP_NAMES=['baseColor','roughness','metalness','normal','height','position','worldNormal','curvature','id','elevation','opacity','ao','bentNormal','thickness'];
 
 function target(size,type=THREE.HalfFloatType){
@@ -67,7 +68,7 @@ export class PeentGPU {
     this.viewCamera=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
     this.raycaster=new THREE.Raycaster();
     this.size=512;this.sampleCount=16;this.rayDistance=.35;
-    this.maps={};this.composites=[];this.padded={};this.paintMasks=new Map();this.imageTextures=new Map();
+    this.maps={};this.composites=[];this.padded={};this.paintMasks=new Map();this.smartMasks=new Map();this.imageTextures=new Map();
     this.whiteTexture=new THREE.DataTexture(new Uint8Array([255,255,255,255]),1,1,THREE.RGBAFormat);this.whiteTexture.needsUpdate=true;
     this.dirtyFrom=0;
     this.view='3d';this.channel='material';this.layers=[];
@@ -103,6 +104,7 @@ export class PeentGPU {
     disposeTargets(this.maps);this.maps={};
     disposeTargets(this.composites);this.composites=[];
     disposeTargets(this.padded);this.padded={};
+    for(const rt of this.smartMasks.values())rt.dispose();this.smartMasks.clear();
     this.normalResult?.dispose();this.normalResult=null;
     for(const rt of this.paintMasks.values())rt.dispose();
     this.paintMasks.clear();
@@ -201,6 +203,7 @@ export class PeentGPU {
   _resetMasksForResolution(){
     for(const rt of this.paintMasks.values())rt.dispose();
     this.paintMasks.clear();
+    for(const rt of this.smartMasks.values())rt.dispose();this.smartMasks.clear();
     disposeTargets(this.composites);
     this.composites=[];
   }
@@ -214,6 +217,43 @@ export class PeentGPU {
     this.renderer.setClearColor(0x11151c,1);
     this.markDirty(Math.max(0,this.layers.findIndex(x=>x.id===layer.id)));
   }
+  _renderSmartMask(layer,bounds){
+    let rt=this.smartMasks.get(layer.id);
+    if(rt && rt.width!==this.size){rt.dispose();rt=null;}
+    if(!rt){rt=target(this.size);this.smartMasks.set(layer.id,rt);}
+    const params=layer;
+    const mat=shader(quadVert,smartFrag,{
+      uPosition:U(this.maps.position.texture),
+      uNormal:U(this.maps.worldNormal.texture),
+      uEdges:U(this.maps.edges.texture),
+      uAO:U(this.maps.ao.texture),
+      uThickness:U(this.maps.thickness.texture),
+      uCurvature:U(this.maps.curvature.texture),
+      uMask:U(params.mask||0),
+      uInvert:U(params.maskInvert?1:0),
+      uSeed:U(params.seed||0),
+      uScale:U(params.scale??3),
+      uContrast:U(params.contrast??1),
+      uBreakup:U(params.breakup??.12),
+      uEdgeDistance:U(params.edgeDistance??.035),
+      uAngleThreshold:U(params.angleThreshold??20),
+      uSoftness:U(params.softness??.35),
+      uDensity:U(params.density??.36),
+      uLength:U(params.length??.8),
+      uWidth:U(params.width??.035),
+      uDirection:U(params.direction??35),
+      uGravity:U(params.gravity??1),
+      uCavity:U(params.cavity??.65),
+      uAOProtect:U(params.aoProtect??.35),
+      uTopBias:U(params.topBias??.75),
+      uBreakupScale:U(params.breakupScale??1),
+      uMin:U(bounds.min.clone()),
+      uSize:U(bounds.getSize(new THREE.Vector3()))
+    });
+    this._draw(mat,rt);
+    mat.dispose();
+    return rt;
+  }
   markDirty(index=0){
     this.dirtyFrom=Math.min(this.dirtyFrom,index);
   }
@@ -223,21 +263,22 @@ export class PeentGPU {
     let start=Math.min(this.dirtyFrom,this.composites.length);
     const geometryBounds=this.model.geometry.boundingBox;
     const uniforms={
-      uPrevious:U(null),
-      uPosition:U(this.maps.position.texture),uNormal:U(this.maps.worldNormal.texture),
-      uCurvature:U(this.maps.curvature.texture),uAO:U(this.maps.ao.texture),
-      uThickness:U(this.maps.thickness.texture),uPaint:U(null),
-      uImage:U(this.whiteTexture),uHasImage:U(0),uBreakup:U(0),uInvert:U(0),
-      uMode:U(0),uHasPrevious:U(0),uMask:U(0),uProjection:U(1),
-      uColor:U(new THREE.Color()),uRoughness:U(.6),uMetallic:U(0),uHeight:U(0),
-      uOpacity:U(1),uScale:U(1),uContrast:U(1),uSeed:U(0),uStrength:U(.3),
-      uMin:U(geometryBounds.min.clone()),uSize:U(geometryBounds.getSize(new THREE.Vector3()))
+      uPrevious:U(null),uPosition:U(this.maps.position.texture),
+      uNormal:U(this.maps.worldNormal.texture),uSmartMask:U(this.whiteTexture),
+      uPaint:U(null),uImage:U(this.whiteTexture),uHasImage:U(0),
+      uMode:U(0),uHasPrevious:U(0),uProjection:U(1),
+      uColor:U(new THREE.Color()),uRoughness:U(.6),uMetallic:U(0),
+      uHeight:U(0),uOpacity:U(1),uScale:U(1),uSeed:U(0),uStrength:U(.3)
     };
     const mat=shader(quadVert,layerFrag,uniforms);
     // Compose only dirty layers; previous layer outputs remain cached.
     for(let i=start;i<layers.length;i++){
       const layer=layers[i];
       if(!this.composites[i])this.composites[i]={};
+      // Evaluate expensive geometry, weathering and scratch generator ONCE per layer.
+      // Four PBR channels reuse this cached GPU smart mask.
+      const smart=this._renderSmartMask(layer,geometryBounds);
+      uniforms.uSmartMask.value=smart.texture;
       for(let channel=0;channel<CHANNELS.length;channel++){
         const name=CHANNELS[channel];
         if(!this.composites[i][name])this.composites[i][name]=target(this.size);
@@ -254,10 +295,7 @@ export class PeentGPU {
         const img=this.imageTextures.get(layer.id);
         uniforms.uImage.value=img||this.whiteTexture;
         uniforms.uHasImage.value=img?1:0;
-        uniforms.uBreakup.value=layer.breakup??0;
-        uniforms.uInvert.value=layer.maskInvert?1:0;
         uniforms.uMode.value=channel;
-        uniforms.uMask.value=layer.mask;
         uniforms.uProjection.value=layer.projection==='triplanar'?1:0;
         uniforms.uColor.value.set(layer.color);
         uniforms.uRoughness.value=layer.roughness;
@@ -265,7 +303,6 @@ export class PeentGPU {
         uniforms.uHeight.value=layer.height;
         uniforms.uOpacity.value=layer.visible?layer.opacity:0;
         uniforms.uScale.value=layer.scale;
-        uniforms.uContrast.value=layer.contrast;
         uniforms.uSeed.value=layer.seed;
         uniforms.uStrength.value=layer.variation;
         this._draw(mat,this.composites[i][name]);
@@ -274,6 +311,9 @@ export class PeentGPU {
     mat.dispose();
     for(let i=layers.length;i<this.composites.length;i++)disposeTargets(this.composites[i]);
     this.composites.length=layers.length;
+    const active=new Set(layers.map(l=>l.id));
+    for(const [id,rt] of this.smartMasks)if(!active.has(id)){rt.dispose();this.smartMasks.delete(id);}
+    for(const [id,rt] of this.paintMasks)if(!active.has(id)){rt.dispose();this.paintMasks.delete(id);}
     this.dirtyFrom=layers.length;
     this._padFinal('height',this.composites.at(-1)?.height);
     this._bakeNormalFromHeight();
@@ -454,6 +494,7 @@ export class PeentGPU {
   dispose(){
     this._running=false;this._resizer.disconnect();
     disposeTargets(this.maps);disposeTargets(this.composites);disposeTargets(this.padded);
+    for(const rt of this.smartMasks.values())rt.dispose();this.smartMasks.clear();
     this.padScratch?.dispose();
     this.clearLayerImages();this.whiteTexture.dispose();
     for(const rt of this.paintMasks.values())rt.dispose();
