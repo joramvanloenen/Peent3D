@@ -2,7 +2,7 @@
 
 **Peent3D** is an early-stage, GPU-based texture authoring application for **Windows**, designed for **low-poly meshes**. It runs as an Electron desktop application with a WebGL2 GPU backend, Three.js PBR preview, reusable UV-space mesh data, and a layer-based material editor.
 
-> **Status: v0.2.5 experimental preview, validated with Windows WebGL2 GUI smoke tests.** This repository is a substantial initial implementation, **not** feature-parity with Adobe Substance 3D Painter. Test the baker on your own meshes before depending on exported data. No commercial licensing or compatibility with Adobe is implied.
+> **Status: v0.2.6 experimental preview, validated with Windows WebGL2 GUI smoke tests.** This repository is a substantial initial implementation, **not** feature-parity with Adobe Substance 3D Painter. Test the baker on your own meshes before depending on exported data. No commercial licensing or compatibility with Adobe is implied.
 
 ## What is implemented
 
@@ -17,7 +17,8 @@
 - **Angle Threshold on every mask**: edge-aware generators use minimum real mesh dihedral angle, while orientation-based generators use maximum angle from object-space up (180° means no filtering). A full-surface mask also supports angular restriction.
 - **UV-seam-safe edge distances**: feature edges are identified in welded *3D geometry* (not UV borders). A spatial index selects nearby true feature segments, and GPU baking evaluates exact finite-segment distance at each surface texel. Shared corners and UV-island splits no longer truncate the distance field. Nearby disconnected meshes are excluded, and angle-specific maps are cached.
 - **Topology-based hard-edge baker**: identifies signed convex and concave dihedral angles across shared mesh edges, unaffected by UV seams. Stores **physical edge distance** in normalized model-space units; independent of texture resolution.
-- **12 GPU procedural smart-mask generators**: convex edge wear, concave crevices, AO dirt, height gradients, thin parts, grunge, gravity streaks, leaks/drips, oxidation, deposited dust, and directional natural scratches.
+- **Standalone Signed Mean Curvature smart mask** (generator 13): welded 3D cotangent-weighted Laplace–Beltrami estimate, robust per-vertex area normalization, signed convex/concave detection and three edge-aware smoothing scales. Smoothing/cutoff/intensity/region are independently editable per mask. This is **separate from** the legacy curvature and topology-driven edge distance maps.
+- **13 GPU procedural smart-mask generators**: convex edge wear, concave crevices, AO dirt, height gradients, thin parts, grunge, gravity streaks, leaks/drips, oxidation, deposited dust, and directional natural scratches.
 - **Edge wear controls**: Edge Distance, Angle Threshold, softness and AO protection plus new **Breakup intensity**, **Breakup hardness**, **Breakup position**, and **Breakup band width**. Edge grunge affects only the intermediate transition pixels; the solid 100% convex wear core remains unaltered. Breakup position and width specify which mask-strength interval can chip away.
 - Other generators expose density, line width, length, gravity, top bias, and cavity influence as appropriate.
 - A dedicated **smart-mask render target per layer** caches procedural effects once, reused for all four PBR channels. No more recomputing expensive multi-octave scratches four times.
@@ -75,7 +76,7 @@ The browser build can download ZIP/project files. The Electron build opens a nat
 2. Choose a 256–2048 map resolution and AO sample count, then click **Bake mesh maps**.
 3. Choose a material preset using the **New layer preset** selector, then press **＋**. You can also select, reorder or edit existing layers. Drag any slider, type an exact number, or press **↺** to reset one value.
 4. On one material layer use **＋ Mask** to stack multiple geometry-driven generators (edge wear + grunge + leaks, for example). Select a mask to adjust its unique Angle Threshold, scale, seed, opacity and blending. For edge wear, **Edge Distance** sets width in model-space units, unaffected by UV seams. Use **Paint (B)** / **Erase (E)** for edits. **V** orbits; **F** frames.
-5. Switch to **UV / Map view**, inspect individual channels or select **Selected smart mask** to troubleshoot the procedural layer.
+5. Switch to **UV / Map view**, inspect individual channels, including **Signed mean curvature (RGB scales)**, or select **Selected smart mask** to see the mask stack. For the new **Signed mean curvature** generator, choose Convex, Concave, Both or Signed and adjust smoothing, cutoff and intensity.
 6. **Export maps** saves a ZIP of PNG textures. **Save project** keeps your layers, embedded mesh and paint-mask edits.
 
 **Important:** Changing bake resolution regenerates all masks and clears previous paint strokes. Save a project before changing resolution if you need to preserve them. Reimporting a mesh also resets paint mask textures.
@@ -85,6 +86,7 @@ The browser build can download ZIP/project files. The Electron build opens a nat
 \`\`\`text
 src/geometry.js                 UV/geometry preparation, vertex curvature, BVH
 src/edge.js                     Welded 3D topology, signed dihedral features and local segment spatial index
+src/curvature.js                Cotangent discrete signed mean curvature, robust normalization and edge-aware multi-scale smoothing
 src/gpu.js                      GPU raster passes, ray baking, layer cache, painting, export
 src/shaders/uv.*                UV-space raster maps
 src/shaders/ray.frag.glsl       GPU BVH traversal for AO, bent normals, thickness
@@ -146,3 +148,9 @@ The model is converted to an **object-space, centered/scaled preview mesh** for 
 ## License
 
 No license has been selected; reuse permissions are not granted by this README.
+
+## Signed mean curvature (independent smart mask)
+
+Choose **＋ Mask → Signed mean curvature** on any material layer. This generator uses signed discrete mean curvature, not edge-wear distance or the older curvature heuristic. For a consistently outward-oriented mesh, positive values are convex and negative values concave. **Curvature region** chooses Convex, Concave, Both or Signed (50% grey is flat). **Curvature smoothing** blends the raw, two-iteration and six-iteration edge-aware fields without recalculating geometry when the slider moves. **Curvature cutoff** suppresses weak convex/concave curvature; **Curvature intensity** scales the response. Existing mask-specific Angle Threshold (object-space surface tilt for this generator), Contrast and optional Grunge remain available.
+
+The geometry is welded by 3D position within each submesh before computing cotangent weights, regardless of UV seams and rendering-normal splits. Vertex areas use barycentric area weights; boundary, degenerate and highly obtuse triangles are handled defensively. Values are normalized by a robust 95th percentile and encoded symmetrically into the GPU map (0=concave, 0.5=flat, 1=convex). The baked signed map uses **R/G/B for fine/medium/broad curvature**. The old curvature map is retained for backward compatibility.
