@@ -28,3 +28,27 @@ test('missing UVs get a unique triangle-atlas fallback',()=>{
     assert.ok(uv.getY(i)>=0&&uv.getY(i)<=1);
   }
 });
+
+test('a cube has shared convex edges but no false concave diagonals',()=>{
+  const result=prepareScene(new THREE.Mesh(new THREE.BoxGeometry(2,2,2),new THREE.MeshStandardMaterial()),'Cube');
+  assert.ok(result.edgeStats.convex>=12,'Should detect the 12 real convex cube edges');
+  assert.equal(result.edgeStats.concave,0,'A closed convex box must not contain concave edges');
+  const a=result.geometry.getAttribute('aEdgeAngles');
+  const alt=result.geometry.getAttribute('aEdgeAltitude');
+  const bary=result.geometry.getAttribute('aBarycentric');
+  assert.equal(a.count,result.geometry.getAttribute('position').count);
+  assert.equal(alt.count,a.count);
+  for(let i=0;i<a.count;i++){
+    for(let k=0;k<3;k++){
+      assert.ok(Number.isFinite(a.getComponent(i,k)));
+      assert.ok(alt.getComponent(i,k)>=0);
+    }
+    assert.equal(bary.getX(i)+bary.getY(i)+bary.getZ(i),1);
+  }
+});
+test('a flat triangulated plane does not produce false convex wear',()=>{
+  const geometry=new THREE.PlaneGeometry(2,2,3,3);
+  const result=prepareScene(new THREE.Mesh(geometry,new THREE.MeshStandardMaterial()),'Plane');
+  assert.equal(result.edgeStats.convex,0);
+  assert.equal(result.edgeStats.concave,0);
+});

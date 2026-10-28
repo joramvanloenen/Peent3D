@@ -373,6 +373,7 @@ export class PeentGPU {
       thickness:this.maps.thickness?.texture,position:this.maps.position?.texture,
       id:this.maps.id?.texture,worldNormal:this.maps.worldNormal?.texture,
       elevation:this.maps.elevation?.texture,opacity:this.maps.opacity?.texture,
+      smartMask:this.smartMasks.get(this.selectedLayerId)?.texture,
       bentNormal:this.maps.bentNormal?.texture
     };
     return outputs[this.channel]||null;

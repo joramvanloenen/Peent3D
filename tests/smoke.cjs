@@ -25,6 +25,25 @@ const path = require('node:path');
       return /baked|Bake error|initialization failed/i.test(s);
     },null,{timeout:180000});
     const status=await page.locator('#status').innerText();
+    // Exercise live GPU shaders for the repaired low-poly edge baker and weathering generators.
+    const generator=page.locator('.row:has(label:text-is("Generator")) select');
+    await generator.selectOption('1');
+    const edgeInput=page.locator('.number-control:has(label:text-is("Edge distance")) input[type=number]');
+    await edgeInput.fill('0.07');
+    await edgeInput.press('Tab');
+    await page.waitForTimeout(350);
+    assert.equal(await edgeInput.inputValue(),'0.07');
+    for(const mask of ['8','9','10','11','12']){
+      await generator.selectOption(mask);
+      await page.waitForTimeout(150);
+    }
+    const accent=await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--accent').trim());
+    assert.equal(accent,'#f28c40');
+    const scroll=await page.locator('.inspector').evaluate(el=>{
+      el.scrollTop=el.scrollHeight;
+      return {top:el.scrollTop,scrollable:el.scrollHeight>el.clientHeight};
+    });
+    assert.ok(scroll.scrollable&&scroll.top>0,'Inspector must scroll to the bottom controls');
     await page.screenshot({path:path.join(__dirname,'smoke.png'),timeout:20000});
     assert.match(status,/baked/i,'Baking did not succeed: '+status);
     assert.ok((await page.locator('#layer-list .layer').count())>=4);

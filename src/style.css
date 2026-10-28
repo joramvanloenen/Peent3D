@@ -81,3 +81,8 @@ input[type=range]{cursor:pointer}
 .property-actions button{flex:1;padding:7px 5px;font-size:11px}
 .mask-description{color:#b6b6b6;font-size:11px;margin:7px 0 10px;line-height:1.6}
 @media(max-width:1200px){.workspace{grid-template-columns:56px minmax(300px,1fr) 338px}.toolbar{padding-left:3px}.panel{padding:11px}.number-control{grid-template-columns:103px minmax(35px,1fr) 65px 26px}.row label{min-width:94px}}
+
+/* Bake controls use the same compact, editable numeric affordance. */
+#ray-distance-number{flex:none;width:65px;min-width:65px;text-align:right;height:27px;padding:3px 5px}
+#ray-distance-reset{flex:none;width:26px;height:27px;padding:0;color:#bbb;font-size:16px}
+#ray-distance-reset:hover{color:var(--accent)}
