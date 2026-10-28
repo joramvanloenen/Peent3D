@@ -129,6 +129,40 @@ const path = require('node:path');
     await page.waitForTimeout(350);
     await page.screenshot({path:path.join(__dirname,'smoke-signed-curvature-mask.png'),timeout:20000});
     await page.locator('#channel-view').selectOption('material');
+    // Browse curated presets, filter/search and apply a multi-mask recipe.
+    await page.locator('#btn-browse-masks').click();
+    await page.locator('#mask-preset-browser').waitFor({state:'visible'});
+    const gallery=page.locator('#mask-preset-grid .preset-card');
+    assert.ok(await gallery.count()>=18,'Expected curated, visually browsable mask recipes');
+    const presetSearch=page.locator('#mask-preset-search');
+    await presetSearch.fill('Aged Painted Metal');
+    assert.equal(await gallery.count(),1,'Preset search should filter names/tags');
+    await gallery.first().click();
+    assert.match(await page.locator('#mask-preset-detail').innerText(),/Chipped|oxidation|Aged/i);
+    const beforePreset=await page.locator('.mask-stack-item').count();
+    await page.locator('#mask-preset-add').click();
+    assert.equal(await page.locator('.mask-stack-item').count(),beforePreset+3);
+    await page.waitForTimeout(650);
+    // Save a custom stack with the live editable mask parameters.
+    await page.locator('#btn-browse-masks').click();
+    await page.locator('.preset-save-trigger').click();
+    await page.locator('#mask-preset-name').fill('Smoke saved recipe');
+    await page.locator('#mask-preset-save-stack').click();
+    await page.locator('.preset-category').filter({hasText:'My presets'}).click();
+    assert.ok((await page.locator('#mask-preset-grid .preset-card').count())>=1,'Saved stack should appear in My presets');
+    await page.locator('#mask-preset-grid .preset-card').filter({hasText:'Smoke saved recipe'}).click();
+    assert.match(await page.locator('#mask-preset-detail').innerText(),/Smoke saved recipe/);
+    await page.screenshot({path:path.join(__dirname,'smoke-preset-browser.png'),timeout:20000});
+    const savedCount=await page.locator('.mask-stack-item').count();
+    await page.locator('#mask-preset-replace').click();
+    assert.equal(await page.locator('.mask-stack-item').count(),savedCount,
+      'Replacing a stack with its own saved preset must preserve mask count');
+    await page.locator('#btn-browse-masks').click();
+    await page.locator('.preset-category').filter({hasText:'My presets'}).click();
+    await page.locator('#mask-preset-grid .preset-card').filter({hasText:'Smoke saved recipe'}).click();
+    await page.locator('#mask-preset-delete').click();
+    assert.equal(await page.locator('#mask-preset-grid .preset-card').count(),0,'Custom preset deletion should persist');
+    await page.locator('.preset-close').click();
     const accent=await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--accent').trim());
     assert.equal(accent,'#f28c40');
     const scroll=await page.locator('.inspector').evaluate(el=>{
