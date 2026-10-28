@@ -351,6 +351,8 @@ function renderProperties(){
      :'Maximum permitted surface angle from upward. 180° means unrestricted.';
    root.append(angleHelp);
    if(effect.mask!==0){
+     slider('Mask scale','scale',.1,20,.1,effect);
+     slider('Noise seed','seed',0,999,1,effect);
      slider('Contrast','contrast',.2,8,.05,effect);
      if([1,2,3,4,5,6,7,10,11].includes(effect.mask)){
        slider(effect.mask===1?'Breakup intensity':'Grunge intensity','breakup',0,1,.01,effect);
@@ -383,7 +385,7 @@ function renderProperties(){
    root.append(empty);
  }
  const hint=document.createElement('p');hint.className='property-help';
- hint.textContent='Mask effects combine in stack order (top to bottom). A separate painted mask applies after the combined procedural result.';
+ hint.textContent='Mask effects combine in listed order, then the painted mask is applied. Each generator has independent settings and can be reordered.';
  root.append(hint);
  section('Brush');
  const maskActions=document.createElement('div');maskActions.className='property-actions';
