@@ -12,6 +12,8 @@
    <div class="brand"><span class="brand-mark">◈</span><span>PEENT<span class="thin">3D</span></span><span class="beta">BETA</span></div>
    <div class="top-actions">
      <button id="btn-import">↥ &nbsp;Import mesh</button>
+     <button id="btn-mesh-maps" title="Mesh-map bake settings">◈ &nbsp;Mesh maps</button>
+     <button id="btn-material-browser" title="Saved material library">▦ &nbsp;Materials</button>
      <button id="btn-project">Save project</button>
      <button id="btn-load">Open project</button>
      <button id="btn-export" class="primary">↧ &nbsp;Export maps</button>
@@ -31,17 +33,10 @@
      <div class="view-controls"><label>Preview <select id="channel-view"><option value="material">Material</option><option value="baseColor">Base color</option><option value="roughness">Roughness</option><option value="metalness">Metallic</option><option value="normal">Normal</option><option value="ao">AO</option><option value="curvature">Curvature (legacy)</option><option value="signedMeanCurvature">Signed curvature · RGB scales</option><option value="thickness">Thickness</option><option value="position">Position</option><option value="id">ID</option><option value="height">Elevation</option><option value="opacity">Coverage</option><option value="smartMask">Selected smart mask</option></select></label></div>
     </div>
     <div id="viewport" class="viewport"><div id="drop-hint" class="drop-hint">Drop an OBJ, GLB or GLTF here to open</div><div id="loading" class="loading hidden">Processing mesh…</div></div>
-    <div class="stage-footer"><span id="mesh-info">Default sphere</span><span id="gpu-info">GPU initialization…</span><span id="status">Ready</span></div>
+    <div class="stage-footer"><span id="mesh-info">Default cube</span><span id="gpu-info">GPU initialization…</span><span id="status">Ready</span></div>
    </section>
    <aside class="inspector">
-     <section class="panel">
-      <div class="panel-heading"><h3>Mesh maps</h3><span class="badge">GPU</span></div>
-      <div class="row"><label for="resolution">Resolution</label><select id="resolution"><option value="256">256 px</option><option value="512" selected>512 px</option><option value="1024">1024 px</option><option value="2048">2048 px</option></select></div>
-      <div class="row"><label for="samples">Ray samples</label><select id="samples"><option value="8">8 · Fast</option><option value="16" selected>16 · Balanced</option><option value="32">32 · Quality</option><option value="64">64 · High</option></select></div>
-      <div class="row"><label>Ray distance</label><input id="ray-distance" type="range" min=".03" max="1.5" step=".01" value=".35"><input id="ray-distance-number" type="number" min=".03" max="1.5" step=".01" value=".35" aria-label="Ray distance numeric value"><button id="ray-distance-reset" class="reset" title="Reset ray distance" aria-label="Reset ray distance">↺</button></div>
-      <button id="btn-bake" class="wide secondary">✧ &nbsp;Bake mesh maps</button>
-      <div class="subtle" id="bake-note">Object-space normals, AO, curvature, thickness, bent normals, IDs, position, coverage and elevation.</div>
-     </section>
+     
      <section class="panel layers-panel">
       <div class="panel-heading"><h3>Material layers</h3><div class="inline-buttons"><select id="new-layer-preset" aria-label="New layer preset" title="Pick a material preset"><option value="0">Base iron</option><option value="1">Painted coating</option><option value="2">Fine edge wear</option><option value="3">Cavity deposits</option><option value="4" selected>Iron oxidation</option><option value="5">Settled dust</option><option value="6">Surface streaks</option><option value="7">Gravity leaks</option><option value="8">Fine scratches</option></select><button id="btn-add-layer" title="New material layer">＋</button><button id="btn-remove-layer" title="Remove selected layer">−</button></div></div>
       <div id="layer-list" class="layer-list"></div>
@@ -53,7 +48,24 @@
      </section>
    </aside>
   </main>
-  <input type="file" id="mesh-file" hidden accept=".obj,.glb,.gltf" />
+  <div class="mesh-bake-overlay" id="mesh-bake-dialog" role="dialog" aria-modal="true" aria-label="Mesh maps bake settings" hidden>
+    <section class="mesh-bake-panel">
+     <div class="mesh-bake-head">
+      <div><div class="material-eyebrow">GEOMETRY / ONE-TIME BAKE</div><h2>Mesh maps</h2>
+       <p>Bake geometry maps once for this mesh. All materials and smart masks reuse them.</p></div>
+      <button id="mesh-bake-close" aria-label="Close mesh-map settings">×</button>
+     </div>
+     <div class="mesh-bake-controls">
+      <div class="row"><label for="resolution">Resolution</label><select id="resolution"><option value="256">256 px</option><option value="512">512 px</option><option value="1024">1024 px</option><option value="2048" selected>2048 px · Default</option></select></div>
+      <div class="row"><label for="samples">Ray samples</label><select id="samples"><option value="8">8 · Fast</option><option value="16" selected>16 · Balanced</option><option value="32">32 · Quality</option><option value="64">64 · High</option></select></div>
+      <div class="row"><label>Ray distance</label><input id="ray-distance" type="range" min=".03" max="1.5" step=".01" value=".35"><input id="ray-distance-number" type="number" min=".03" max="1.5" step=".01" value=".35" aria-label="Ray distance numeric value"><button id="ray-distance-reset" class="reset" title="Reset ray distance" aria-label="Reset ray distance">↺</button></div>
+      <p class="subtle">AO, bent normals, thickness, curvature, IDs, position, coverage and geometric edge data.</p>
+      <div id="map-bake-status" class="mesh-bake-status">Ready for initial bake</div>
+     </div>
+     <div class="mesh-bake-actions"><button id="mesh-bake-cancel">Close</button><button id="btn-bake" class="primary">✧ &nbsp;Rebake mesh maps</button></div>
+    </section>
+   </div>
+   <input type="file" id="mesh-file" hidden accept=".obj,.glb,.gltf" />
   <input type="file" id="project-file" hidden accept=".peent,.json" />
  </div>
  <script type="module" src="/src/main.js"></script>

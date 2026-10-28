@@ -146,12 +146,12 @@ export function createMaterialBrowser({starterLayers,getLayers,getSelectedLayer,
  }
  saveSelected.onclick=()=>{const layer=getSelectedLayer();if(layer)void store([layer]);};
  saveStack.onclick=()=>{const layers=getLayers();if(layers?.length)void store(layers);};
- function apply(mode){
+ async function apply(mode){
    const recipe=all().find(x=>x.id===selected);
    if(!recipe)return;
    try{
      const layers=instantiateMaterialRecipe(recipe,makeLayer);
-     onApply(layers,mode,recipe);
+     await onApply(layers,mode,recipe);
      hide();
    }catch(error){onStatus('Cannot apply material: '+error.message);}
  }

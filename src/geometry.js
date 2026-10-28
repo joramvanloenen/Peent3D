@@ -6,7 +6,16 @@ import {bakeSignedMeanCurvature} from './curvature.js';
 
 // All baking geometry is non-indexed: one unambiguous UV, normal and ID per triangle corner.
 export function createDemoMesh() {
-  return prepareScene(new THREE.Mesh(new THREE.TorusKnotGeometry(0.85, 0.30, 110, 12), new THREE.MeshStandardMaterial()), 'Torus knot');
+  const geometry=new THREE.BoxGeometry(1,1,1).toNonIndexed();
+  const uv=geometry.getAttribute('uv');
+  for(let face=0;face<6;face++){
+    for(let i=face*6;i<face*6+6;i++){
+      const x=face%3,y=Math.floor(face/3);
+      uv.setXY(i,(x+.06+uv.getX(i)*.88)/3,(y+.06+uv.getY(i)*.88)/2);
+    }
+  }
+  uv.needsUpdate=true;
+  return prepareScene(new THREE.Mesh(geometry,new THREE.MeshStandardMaterial()),'Default cube');
 }
 
 export async function loadMesh(file) {

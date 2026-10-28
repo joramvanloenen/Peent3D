@@ -73,7 +73,7 @@ export class PeentGPU {
     this.uvViewScene.add(this.viewQuad);
     this.viewCamera=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
     this.raycaster=new THREE.Raycaster();
-    this.size=512;this.sampleCount=16;this.rayDistance=.35;
+    this.size=2048;this.sampleCount=16;this.rayDistance=.35;
     this.maps={};this.composites=[];this.padded={};this.paintMasks=new Map();this.smartMasks=new Map();
     this.effectMasks=new Map();this.dirtyEffects=new Set();this.edgeMaps=new Map();this.imageTextures=new Map();
     this.whiteTexture=new THREE.DataTexture(new Uint8Array([255,255,255,255]),1,1,THREE.RGBAFormat);this.whiteTexture.needsUpdate=true;

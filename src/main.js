@@ -4,6 +4,7 @@ import {zipSync,gzipSync,gunzipSync,strToU8,strFromU8} from 'fflate';
 import {PeentGPU} from './gpu.js';
 import {createDemoMesh,loadMesh,prepareScene} from './geometry.js';
 import {createMaskPresetBrowser} from './mask-preset-browser.js';
+import {createMaterialBrowser} from './material-browser.js';
 
 const $=id=>document.getElementById(id);
 const masks=[
@@ -142,6 +143,30 @@ try{
  $('gpu-info').textContent='GPU · '+gpu.gpuName;
 }catch(error){$('viewport').textContent='GPU initialization failed: '+error.message;throw error;}
 gpu.layers=layers;
+const materialBrowser=createMaterialBrowser({
+ starterLayers:presets,
+ getLayers:()=>layers,
+ getSelectedLayer:()=>currentLayer(),
+ makeLayer:partial=>newLayer(partial),
+ onApply:async(fresh,mode,recipe)=>{
+   if(busy)throw Error('Finish the current operation first.');
+   if(mode==='replace')layers=fresh;
+   else layers.push(...fresh);
+   gpu.layers=layers;
+   gpu.clearLayerImages();
+   for(const layer of layers)if(layer.imageData)await gpu.setLayerImage(layer);
+   selected=fresh.at(-1)?.id||layers.at(-1)?.id;
+   selectedMaskId=currentLayer()?.masks?.[0]?.id;
+   gpu.selectedLayerId=selected;
+   gpu.dirtyFrom=0;
+   for(let i=0;i<layers.length;i++)gpu.markDirty(i);
+   renderLayers();renderProperties();
+   gpu.compose(layers,false);refreshPreview();
+   status((mode==='replace'?'Loaded':'Added')+' material: '+recipe.name);
+ },
+ onStatus:status
+});
+$('btn-material-browser').onclick=()=>materialBrowser.open();
 const maskPresetBrowser=createMaskPresetBrowser({
  getLayer:()=>currentLayer(),
  getSelectedMaskId:()=>selectedMaskId,
@@ -490,7 +515,14 @@ $('btn-remove-layer').onclick=()=>{
 $('btn-layer-up').onclick=()=>moveLayer(1);
 $('btn-layer-down').onclick=()=>moveLayer(-1);
 
-async function bake(){
+const bakeDialog=$('mesh-bake-dialog');
+function closeBakeDialog(){bakeDialog.hidden=true;$('btn-mesh-maps').focus();}
+$('btn-mesh-maps').onclick=()=>{bakeDialog.hidden=false;$('mesh-bake-close').focus();};
+$('mesh-bake-close').onclick=closeBakeDialog;
+$('mesh-bake-cancel').onclick=closeBakeDialog;
+bakeDialog.addEventListener('click',e=>{if(e.target===bakeDialog)closeBakeDialog();});
+bakeDialog.addEventListener('keydown',e=>{if(e.key==='Escape'&&!busy){e.preventDefault();closeBakeDialog();}});
+async function bake({closeOnSuccess=false}={}){
   if(busy)return;
   busy=true;$('btn-bake').disabled=true;
   try{
@@ -502,10 +534,12 @@ async function bake(){
     refreshPreview();
     if(gpu.model.missingUVs)status('Baked · triangle-atlas fallback UVs. Author UVs for best results.');
     else status('Mesh maps baked · '+gpu.size+'px');
+    $('map-bake-status').textContent='✓ Mesh maps baked at '+gpu.size+'px · '+gpu.sampleCount+' ray samples';
+    if(closeOnSuccess)closeBakeDialog();
   }catch(error){console.error(error);status('Bake error: '+error.message);}
   finally{busy=false;$('btn-bake').disabled=false;}
 }
-$('btn-bake').onclick=bake;
+$('btn-bake').onclick=()=>bake({closeOnSuccess:true});
 $('ray-distance').oninput=e=>{$('ray-distance-number').value=Number(e.target.value).toFixed(2);};
 $('ray-distance-number').onchange=e=>{
  const n=Number(e.target.value);
@@ -695,8 +729,6 @@ function createValidationCube(){
  uv.needsUpdate=true;
  return prepareScene(new THREE.Mesh(geometry,new THREE.MeshStandardMaterial()),'Smoke UV-unwrapped cube');
 }
-gpu.setGeometry(new URLSearchParams(location.search).get('smoke')==='1'
-  ? createValidationCube()
-  : createDemoMesh());
+gpu.setGeometry(createDemoMesh());
 $('mesh-info').textContent=gpu.model.name+' · '+gpu.model.triangleCount.toLocaleString()+' tris';
 bake();
