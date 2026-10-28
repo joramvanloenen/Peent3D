@@ -37,6 +37,17 @@ const path = require('node:path');
     await dialog.locator('#mesh-bake-cancel').click();
     await dialog.waitFor({state:'hidden'});
 
+    // Directly inspect the half-res AO bake and then the AO smart generator.
+    // Both must render without WebGL feedback-loop or shader errors at UV seams.
+    await page.locator('#channel-view').selectOption('ao');
+    await page.waitForTimeout(280);
+    await page.screenshot({path:path.join(__dirname,'smoke-baked-ao-seams.png'),timeout:20000});
+    await page.locator('#channel-view').selectOption('smartMask');
+    const aoGenerator=page.locator('.row:has(label:text-is("Generator")) select');
+    await aoGenerator.selectOption('3');
+    await page.waitForTimeout(380);
+    await page.screenshot({path:path.join(__dirname,'smoke-ao-generator-seams.png'),timeout:20000});
+    await page.locator('#channel-view').selectOption('material');
     // Exercise live GPU shaders for the repaired low-poly edge baker and weathering generators.
     const generator=page.locator('.row:has(label:text-is("Generator")) select');
     await generator.selectOption('1');
