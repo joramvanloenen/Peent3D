@@ -178,8 +178,9 @@ export class PeentGPU {
     this.edgeMaps.set(key,rt);
     // Bound persistent caches; a draggable angle control must not leak VRAM.
     if(this.edgeMaps.size>12){
-      const first=this.edgeMaps.keys().next().value;
-      if(first!==key){this.edgeMaps.get(first).dispose();this.edgeMaps.delete(first);}
+      const protectedKey='0:'+this.size;
+      const victim=[...this.edgeMaps.keys()].find(k=>k!==key&&k!==protectedKey);
+      if(victim){this.edgeMaps.get(victim).dispose();this.edgeMaps.delete(victim);}
     }
     return rt;
   }
@@ -271,9 +272,8 @@ export class PeentGPU {
     this.renderer.setClearColor(0x11151c,1);
     this.markDirty(Math.max(0,this.layers.findIndex(x=>x.id===layer.id)));
   }
-  _renderEffect(layer,effect,bounds){
+  _renderEffect(layer,effect,bounds,width){
     if(effect.mask===0)return this.whiteTexture;
-    const width=this.interactive?Math.min(this.size,512):this.size;
     const key=effect.id;
     let rt=this.effectMasks.get(key);
     if(rt && rt.width!==width){rt.dispose();this.effectMasks.delete(key);rt=null;}
@@ -290,7 +290,7 @@ export class PeentGPU {
     }
     const u=this.smartMaterial.uniforms;
     const edgeAware=[1,2,9,10,11].includes(effect.mask);
-    const e=edgeAware?this._edgeMap(effect.angleThreshold??20,this.interactive):this.maps.edges;
+    const e=edgeAware?this._edgeMap(effect.angleThreshold??20,width<this.size):this.maps.edges;
     const values={
       uPosition:this.maps.position.texture,uNormal:this.maps.worldNormal.texture,
       uEdges:e.texture,uAO:this.maps.ao.texture,
@@ -317,8 +317,13 @@ export class PeentGPU {
   _renderSmartMask(layer,bounds){
     // Backward-compatible fallback for projects predating stacked effects.
     const effects=layer.masks||[layer];
-    const width=this.interactive?Math.min(this.size,512):this.size;
     let out=this.smartMasks.get(layer.id);
+    // Material-only edits (color/roughness/height) reuse the existing full-res
+    // combined smart mask. A temporary low-res preview is only needed when
+    // the mask generator itself has actually changed.
+    const dirty=this.dirtySmart.has(layer.id);
+    const width=this.interactive&&dirty?Math.min(this.size,512):this.size;
+    if(out && out.width!==width && !dirty)return out;
     if(out && out.width!==width){out.dispose();this.smartMasks.delete(layer.id);out=null;}
     if(!out){out=target(width);this.smartMasks.set(layer.id,out);this.dirtySmart.add(layer.id);}
     if(!this.dirtySmart.has(layer.id))return out;
@@ -339,7 +344,7 @@ export class PeentGPU {
     }
     for(let i=0;i<enabled.length;i++){
       const effect=enabled[i];
-      const t=this._renderEffect(layer,effect,bounds);
+      const t=this._renderEffect(layer,effect,bounds,width);
       const u=this.maskBlendMaterial.uniforms;
       u.uPrevious.value=previous;
       u.uEffect.value=t;
