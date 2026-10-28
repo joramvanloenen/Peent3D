@@ -229,8 +229,13 @@ export class PeentGPU {
   }
   _renderSmartMask(layer,bounds){
     let rt=this.smartMasks.get(layer.id);
-    if(rt && rt.width!==this.size){rt.dispose();this.smartMasks.delete(layer.id);rt=null;}
-    if(!rt){rt=target(this.size);this.smartMasks.set(layer.id,rt);this.dirtySmart.add(layer.id);}
+    // Bake low-res interactive masks when adjusting expensive procedural generators.
+    // Settled composition automatically restores the requested full resolution.
+    const width=this.interactive && this.dirtySmart.has(layer.id)?Math.min(this.size,512):this.size;
+    if(rt && rt.width!==width && this.dirtySmart.has(layer.id)){rt.dispose();this.smartMasks.delete(layer.id);rt=null;}
+    if(!rt){rt=target(width);this.smartMasks.set(layer.id,rt);this.dirtySmart.add(layer.id);}
+    rt.texture.minFilter=THREE.LinearFilter;
+    rt.texture.magFilter=THREE.LinearFilter;
     if(!this.dirtySmart.has(layer.id))return rt;
     if(!this.smartMaterial){
       const names=['uPosition','uNormal','uEdges','uAO','uThickness','uCurvature',
@@ -276,6 +281,13 @@ export class PeentGPU {
     this.layers=layers;
     this.interactive=interactive;
     if(!this.maps.position)return;
+    // Rebuild any temporary half/quarter-size masks before final-quality output.
+    if(!interactive)for(const [id,rt] of this.smartMasks){
+      if(rt.width!==this.size){
+        const index=layers.findIndex(l=>l.id===id);
+        if(index>=0)this.markDirty(index,{smart:true});
+      }
+    }
     let start=Math.min(this.dirtyFrom,this.composites.length);
     const geometryBounds=this.model.geometry.boundingBox;
     const uniforms={
@@ -297,7 +309,8 @@ export class PeentGPU {
     // At 2K this avoids three-quarters of the expensive full-screen blends.
     const priority=this.channel!=='material'&&channelSet.has(this.channel)
       ?this.channel:(channelSet.has('baseColor')?'baseColor':channelSet.values().next().value);
-    const activeChannels=interactive&&channelSet.size>1?new Set(priority?[priority]:[]):channelSet;
+    const activeChannels=interactive&&this.channel==='smartMask'
+      ?new Set():interactive&&channelSet.size>1?new Set(priority?[priority]:[]):channelSet;
     // Compose only dirty layers AND material channels; previous outputs remain cached.
     for(let i=start;i<layers.length;i++){
       const layer=layers[i];
