@@ -63,7 +63,7 @@ function mark(index=0){
     requestAnimationFrame(()=>{scheduled=false;gpu.compose(layers);refreshPreview();});
   }
 }
-function refreshPreview(){gpu.selectView(uvTab?'uv':'3d',$('channel-view').value);}
+function refreshPreview(){gpu.selectView(uvTab?'uv':'3d',$('channel-view').value);gpu.controls.enabled=tool==='orbit'&&!uvTab;}
 function button(text,click,className=''){
   const b=document.createElement('button');b.textContent=text;
   if(className)b.className=className;
@@ -148,6 +148,10 @@ function renderProperties(){
   hint.textContent='Smart masks use baked AO, curvature, thickness and position maps. Paint/erase modifies this layer’s editable mask in 3D, including across UV seams.';
   root.append(hint);
   section('Brush');
+  const maskActions=document.createElement('div');maskActions.className='row';
+  maskActions.append(button('Clear mask',()=>{gpu.fillMask(layer,0);mark(layers.indexOf(layer));}),
+    button('Fill mask',()=>{gpu.fillMask(layer,1);mark(layers.indexOf(layer));}));
+  root.append(maskActions);
   const controls=[
     ['Radius',brushRadius,.015,.6,.005,value=>brushRadius=value],
     ['Hardness',brushHardness,.01,.99,.01,value=>brushHardness=value],

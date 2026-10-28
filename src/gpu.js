@@ -81,6 +81,9 @@ export class PeentGPU {
     const w=Math.max(16,this.element.clientWidth),h=Math.max(16,this.element.clientHeight);
     this.camera.aspect=w/h;this.camera.updateProjectionMatrix();
     this.renderer.setSize(w,h,false);
+    // Preserve a square UV image regardless of viewport aspect ratio.
+    const ratio=w/h;
+    this.viewQuad.scale.set(ratio>=1?1/ratio:1,ratio>=1?1:ratio,1);
   }
   _animate(){
     if(!this._running)return;
@@ -124,7 +127,7 @@ export class PeentGPU {
   _draw(material,destination,geometryScene=null){
     this.renderer.setRenderTarget(destination);
     this.renderer.setClearColor(0x000000,0);
-    this.renderer.clear(true,true,true);
+    // WebGLRenderer autoClear clears each render target once; avoid double clears.
     if(geometryScene){
       this.uvMesh.material=material;
       this.renderer.render(geometryScene,this.quadCamera);
@@ -200,6 +203,16 @@ export class PeentGPU {
     this.paintMasks.clear();
     disposeTargets(this.composites);
     this.composites=[];
+  }
+  fillMask(layer,value=1){
+    const rt=this._mask(layer);
+    const v=value>0.5?1:0;
+    this.renderer.setRenderTarget(rt);
+    this.renderer.setClearColor(new THREE.Color(v,v,v),1);
+    this.renderer.clear(true,true,true);
+    this.renderer.setRenderTarget(null);
+    this.renderer.setClearColor(0x11151c,1);
+    this.markDirty(Math.max(0,this.layers.findIndex(x=>x.id===layer.id)));
   }
   markDirty(index=0){
     this.dirtyFrom=Math.min(this.dirtyFrom,index);

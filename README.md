@@ -14,7 +14,7 @@
 - Procedural PBR **fill layers** (base color, roughness, metallic, relief height) with visibility, opacity, reordering and per-channel GPU compositing.
 - UV and **triplanar projection** for image-based color Fill Layers and procedural noise using baked 3D position/normal data.
 - Smart masks: convex edge wear, concave regions, AO dirt, upper/lower gradient, thin areas, and 3D noise. Masks support invert/contrast and procedural grunge breakup.
-- Per-layer editable **GPU paint/erase masks** using 3D position and normal maps; strokes can cross UV seams.
+- Per-layer editable **GPU paint/erase masks** using 3D position and normal maps; strokes can cross UV seams. Clear/Fill mask actions allow painted reveals and removals.
 - Basic height-to-normal conversion, roughness and metallic maps.
 - PNG exports of material and baked maps in one ZIP archive.
 - Editable **.peent** project saving including embedded mesh attributes, material layer configuration and painted masks. Projects are gzip-compressed JSON.
