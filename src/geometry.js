@@ -21,6 +21,41 @@ export async function loadMesh(file) {
   return prepareScene(root, file.name);
 }
 
+// Low-cost warning for stacked/overlapping UV islands. A geometry map cannot
+// encode different surface normals/positions into the very same UV texel.
+export function estimateUVOverlap(geometry, gridSize=96, maxTriangles=20000) {
+  const uv=geometry.getAttribute('uv');
+  if(!uv)return 1;
+  const tris=Math.floor(uv.count/3);
+  if(!tris)return 0;
+  const visited=new Int32Array(gridSize*gridSize);visited.fill(-1);
+  let overlap=0,total=0;
+  const step=Math.max(1,Math.ceil(tris/maxTriangles));
+  for(let t=0;t<tris;t+=step){
+    const ax=uv.getX(t*3),ay=uv.getY(t*3);
+    const bx=uv.getX(t*3+1),by=uv.getY(t*3+1);
+    const cx=uv.getX(t*3+2),cy=uv.getY(t*3+2);
+    const det=(by-cy)*(ax-cx)+(cx-bx)*(ay-cy);
+    if(Math.abs(det)<1e-12)continue;
+    const minX=Math.max(0,Math.ceil(Math.min(ax,bx,cx)*gridSize-.5));
+    const maxX=Math.min(gridSize-1,Math.floor(Math.max(ax,bx,cx)*gridSize-.5));
+    const minY=Math.max(0,Math.ceil(Math.min(ay,by,cy)*gridSize-.5));
+    const maxY=Math.min(gridSize-1,Math.floor(Math.max(ay,by,cy)*gridSize-.5));
+    for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++){
+      const px=(x+.5)/gridSize,py=(y+.5)/gridSize;
+      const b0=((by-cy)*(px-cx)+(cx-bx)*(py-cy))/det;
+      const b1=((cy-ay)*(px-cx)+(ax-cx)*(py-cy))/det;
+      const b2=1-b0-b1;
+      if(b0<=.015||b1<=.015||b2<=.015)continue;
+      const index=y*gridSize+x;
+      total++;
+      if(visited[index]>=0 && visited[index]!==t)overlap++;
+      else visited[index]=t;
+    }
+  }
+  return total?Math.min(1,overlap/total):0;
+}
+
 export function prepareScene(root, name = 'Untitled') {
   root.updateMatrixWorld(true);
   const meshes = [];
@@ -85,7 +120,8 @@ export function prepareScene(root, name = 'Untitled') {
   g.computeBoundingSphere();
   computeCurvature(g);
   const edgeStats=addTopologyEdgeData(g);
-  return {geometry:g, triangleCount, name, missingUVs, meshCount:meshes.length,edgeStats};
+  const uvOverlap=missingUVs?0:estimateUVOverlap(g);
+  return {geometry:g, triangleCount, name, missingUVs, meshCount:meshes.length,edgeStats,uvOverlap};
 }
 
 function computeCurvature(g) {
