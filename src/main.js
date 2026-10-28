@@ -291,7 +291,17 @@ async function bake(){
   finally{busy=false;$('btn-bake').disabled=false;}
 }
 $('btn-bake').onclick=bake;
-$('ray-distance').oninput=e=>$('ray-distance-value').textContent=Number(e.target.value).toFixed(2);
+$('ray-distance').oninput=e=>{$('ray-distance-number').value=Number(e.target.value).toFixed(2);};
+$('ray-distance-number').onchange=e=>{
+ const n=Number(e.target.value);
+ const value=Number.isFinite(n)?Math.max(.03,Math.min(1.5,n)):.35;
+ $('ray-distance').value=value;
+ e.target.value=value.toFixed(2);
+};
+$('ray-distance-reset').onclick=()=>{
+ $('ray-distance').value='.35';
+ $('ray-distance-number').value='.35';
+};
 $('channel-view').onchange=refreshPreview;
 $('tab-3d').onclick=()=>{uvTab=false;toggleView();};
 $('tab-uv').onclick=()=>{uvTab=true;toggleView();};

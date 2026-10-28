@@ -82,7 +82,7 @@ float scratches3(vec3 p,vec3 n){
 float dripPlane(vec2 p,float seed){
  float freq=max(.2,uScale)*9.;
  float x=p.x*freq;
- float y=p.y*freq;
+ float y=(p.y+(1.-uGravity)*p.x*.7)*freq;
  float period=max(1.2,uLength*9.);
  float row=floor(y/period);
  float col=floor(x);
