@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {OBJLoader} from 'three/addons/loaders/OBJLoader.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {addTopologyEdgeData} from './edge.js';
+import {bakeSignedMeanCurvature} from './curvature.js';
 
 // All baking geometry is non-indexed: one unambiguous UV, normal and ID per triangle corner.
 export function createDemoMesh() {
@@ -120,9 +121,10 @@ export function prepareScene(root, name = 'Untitled') {
   g.computeBoundingBox();
   g.computeBoundingSphere();
   computeCurvature(g);
+  const signedCurvatureStats=bakeSignedMeanCurvature(g);
   const edgeStats=addTopologyEdgeData(g);
   const uvOverlap=missingUVs?0:estimateUVOverlap(g);
-  return {geometry:g, triangleCount, name, missingUVs, meshCount:meshes.length,edgeStats,uvOverlap};
+  return {geometry:g, triangleCount, name, missingUVs, meshCount:meshes.length,edgeStats,uvOverlap,signedCurvatureStats:{uniqueVertices:signedCurvatureStats.uniqueVertices,normalization:signedCurvatureStats.normalization}};
 }
 
 function computeCurvature(g) {

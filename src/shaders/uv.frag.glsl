@@ -2,6 +2,7 @@ precision highp float;
 in vec3 vPosition;
 in vec3 vNormal;
 in float vCurvature;
+in vec3 vSignedMeanCurvature;
 in vec3 vAltitude;
 in vec3 vBarycentric;
 flat in vec3 vEdgeAngles;
@@ -29,6 +30,7 @@ void main(){
  else if(uMode==4) frag=vec4(vec3(clamp((vPosition.y-uMin.y)/max(.0001,uSize.y),0.,1.)),1.);
  else if(uMode==5) frag=vec4(.5,.5,1.,1.);
  else if(uMode==6) frag=vec4(1.);
+ else if(uMode==7) frag=vec4(vSignedMeanCurvature,1.);
  else {
    // Exact Euclidean distance in 3D to actual *finite feature segments*.
    // Unlike per-triangle barycentrics, this is continuous across UV seams,

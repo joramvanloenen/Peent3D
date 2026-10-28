@@ -10,7 +10,7 @@ const masks=[
  ['Ambient occlusion',3],['Upper height',4],['Lower height',5],
  ['Thin parts',6],['Organic grunge',7],['Gravity streaks',8],
  ['Leaks / drips',9],['Rust / oxidation',10],['Settled dust',11],
- ['Natural scratches',12]
+ ['Natural scratches',12],['Signed mean curvature',13]
 ];
 const maskDescription={
  0:'Unmasked material fill. Paint black to hide or white to reveal.',
@@ -25,13 +25,15 @@ const maskDescription={
  9:'Localized drips guided by cavity/edge information and gravity.',
  10:'Patchy, cavity-biased oxidation with secondary leaking and micro-corrosion.',
  11:'Soft upward-facing deposition, reinforced around occluded corners.',
- 12:'Sparse, directional, variable-length micro-scratches projected in object space.'
+ 12:'Sparse, directional, variable-length micro-scratches projected in object space.',
+ 13:'Cotangent-weighted signed mean curvature on welded 3D vertices. Choose convex, concave, both or signed regions; smoothing is UV-seam independent.'
 };
 const PARAM_DEFAULTS=Object.freeze({
  roughness:.58,metallic:0,height:0,opacity:1,scale:3,variation:.08,
  contrast:1.5,breakup:.12,breakupScale:1,breakupHardness:.58,breakupPosition:.53,breakupWidth:.60,edgeDistance:.038,angleThreshold:180,
  softness:.36,density:.38,length:.85,width:.035,direction:25,
- gravity:1,cavity:.65,aoProtect:.35,topBias:.74,seed:0
+ gravity:1,cavity:.65,aoProtect:.35,topBias:.74,seed:0,
+ meanCurvatureRegion:0,meanCurvatureSmoothing:.5,meanCurvatureCutoff:.12,meanCurvatureIntensity:2
 });
 const GENERATOR_DEFAULTS={
  0:{contrast:1,breakup:0},
@@ -46,7 +48,8 @@ const GENERATOR_DEFAULTS={
  9:{contrast:1.0,breakup:0,scale:1.25,density:.23,length:1.95,width:.10,direction:0,cavity:.75},
  10:{contrast:1.0,breakup:.14,breakupScale:2.4,scale:3.0,density:.25,length:1.55,width:.095,cavity:.82},
  11:{contrast:1.10,breakup:.14,scale:2.1,topBias:.74,cavity:.32},
- 12:{contrast:1.0,breakup:0,scale:1.55,density:.18,length:1.28,width:.040,direction:26}
+ 12:{contrast:1.0,breakup:0,scale:1.55,density:.18,length:1.28,width:.040,direction:26},
+ 13:{angleThreshold:180,contrast:1,breakup:0,meanCurvatureRegion:0,meanCurvatureSmoothing:.5,meanCurvatureCutoff:.12,meanCurvatureIntensity:2}
 };
 const presets=[
   {name:'Base iron',color:'#777b7e',roughness:.47,metallic:.93,mask:0,projection:'triplanar',scale:3,variation:.05},
@@ -62,7 +65,8 @@ const presets=[
 let nextId=1,nextMaskId=1;
 const MASK_PARAMS=['scale','seed','contrast','breakup','breakupScale','breakupHardness',
  'breakupPosition','breakupWidth','edgeDistance','angleThreshold','softness','density',
- 'length','width','direction','gravity','cavity','aoProtect','topBias','maskInvert'];
+ 'length','width','direction','gravity','cavity','aoProtect','topBias','maskInvert',
+ 'meanCurvatureRegion','meanCurvatureSmoothing','meanCurvatureCutoff','meanCurvatureIntensity'];
 const EDGE_ANGLE_TYPES=new Set([1,2,9,10,11]);
 function createMaskEntry(type=1,partial={},legacy=false){
  const defaults={...PARAM_DEFAULTS,...(GENERATOR_DEFAULTS[type]||{}),
@@ -354,7 +358,7 @@ function renderProperties(){
      slider('Mask scale','scale',.1,20,.1,effect);
      slider('Noise seed','seed',0,999,1,effect);
      slider('Contrast','contrast',.2,8,.05,effect);
-     if([1,2,3,4,5,6,7,10,11].includes(effect.mask)){
+     if([1,2,3,4,5,6,7,10,11,13].includes(effect.mask)){
        slider(effect.mask===1?'Breakup intensity':'Grunge intensity','breakup',0,1,.01,effect);
        slider('Breakup hardness','breakupHardness',0,1,.01,effect);
        slider('Grunge scale','breakupScale',.2,8,.1,effect);
@@ -372,6 +376,14 @@ function renderProperties(){
        slider('Density','density',0,1,.01,effect);
        slider('Length','length',.05,4,.01,effect);
        slider('Line width','width',.004,.4,.002,effect);
+     }
+     if(effect.mask===13){
+       dropdown('Curvature region','meanCurvatureRegion',[
+         ['Convex',0],['Concave',1],['Both',2],['Signed (grey = flat)',3]
+       ],effect);
+       slider('Curvature smoothing','meanCurvatureSmoothing',0,1,.01,effect);
+       slider('Curvature cutoff','meanCurvatureCutoff',0,.95,.01,effect);
+       slider('Curvature intensity','meanCurvatureIntensity',.1,8,.1,effect);
      }
      if(effect.mask===12)slider('Scratch angle','direction',-180,180,1,effect);
      if([8,9,10].includes(effect.mask))slider('Gravity','gravity',0,1,.01,effect);

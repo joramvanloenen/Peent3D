@@ -6,6 +6,7 @@ uniform sampler2D uEdges;
 uniform sampler2D uAO;
 uniform sampler2D uThickness;
 uniform sampler2D uCurvature;
+uniform sampler2D uSignedMeanCurvature;
 uniform int uMask;
 uniform int uInvert;
 uniform float uSeed;
@@ -27,6 +28,10 @@ uniform float uCavity;
 uniform float uAOProtect;
 uniform float uTopBias;
 uniform float uBreakupScale;
+uniform int uMeanCurvatureRegion;
+uniform float uMeanCurvatureSmoothing;
+uniform float uMeanCurvatureCutoff;
+uniform float uMeanCurvatureIntensity;
 uniform vec3 uMin;
 uniform vec3 uSize;
 out vec4 frag;
@@ -194,10 +199,22 @@ void main(){
    float trapped=clamp(cavity*.60+concave*.28,0.,1.);
    result=clamp(up*(.65+.35*broad)+trapped*uCavity,0.,1.);
  }else if(uMask==12)result=scratches3(p,n);
+ else if(uMask==13){
+   vec3 scales=texture(uSignedMeanCurvature,vUv).rgb;
+   float t=clamp(uMeanCurvatureSmoothing,0.,1.)*2.;
+   float normalized=t<=1.?mix(scales.r,scales.g,t):mix(scales.g,scales.b,t-1.);
+   float signedH=(normalized-.5)*2.*uMeanCurvatureIntensity;
+   float magnitude=uMeanCurvatureRegion==1?-signedH:
+                   uMeanCurvatureRegion==2?abs(signedH):signedH;
+   float cutoff=clamp(uMeanCurvatureCutoff,0.,.99);
+   result=uMeanCurvatureRegion==3
+     ?clamp(.5+.5*signedH,0.,1.)
+     :smoothstep(cutoff,cutoff+.20,max(0.,magnitude));
+ }
  result=clamp((result-.5)*uContrast+.5,0.,1.);
  if(uBreakup>0.){
    if(uMask==1)result=transitionBreakup(result,fine,convex);
-   else if(uMask<=7||uMask==10||uMask==11){
+   else if(uMask<=7||uMask==10||uMask==11||uMask==13){
      float softness=mix(.28,.012,clamp(uBreakupHardness,0.,1.));
      result*=mix(1.,smoothstep(.5-softness,.5+softness,fine),uBreakup);
    }

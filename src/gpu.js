@@ -15,8 +15,8 @@ import copyFrag from './shaders/copy.frag.glsl?raw';
 import padFrag from './shaders/pad.frag.glsl?raw';
 
 const CHANNELS=['baseColor','roughness','metalness','height'];
-const MESH_MAPS=['position','worldNormal','curvature','id','elevation','normal','opacity','edges'];
-export const MAP_NAMES=['baseColor','roughness','metalness','normal','height','position','worldNormal','curvature','id','elevation','opacity','ao','bentNormal','thickness'];
+const MESH_MAPS=['position','worldNormal','curvature','id','elevation','normal','opacity','signedMeanCurvature','edges'];
+export const MAP_NAMES=['baseColor','roughness','metalness','normal','height','position','worldNormal','curvature','signedMeanCurvature','id','elevation','opacity','ao','bentNormal','thickness'];
 
 function target(size,type=THREE.HalfFloatType){
   const rt=new THREE.WebGLRenderTarget(size,size,{type,format:THREE.RGBAFormat,
@@ -171,7 +171,7 @@ export class PeentGPU {
     if(this.edgeMaps.has(key))return this.edgeMaps.get(key);
     const rt=target(resolution);
     const mat=this.uvBakeMaterial;
-    mat.uniforms.uMode.value=7;
+    mat.uniforms.uMode.value=8;
     mat.uniforms.uAngleThreshold.value=threshold;
     this._draw(mat,rt,this.uvScene);
     rt.texture.magFilter=THREE.NearestFilter;
@@ -280,12 +280,12 @@ export class PeentGPU {
     if(!rt){rt=target(width);this.effectMasks.set(key,rt);this.dirtyEffects.add(key);}
     if(!this.dirtyEffects.has(key))return rt.texture;
     if(!this.smartMaterial){
-      const names=['uPosition','uNormal','uEdges','uAO','uThickness','uCurvature',
+      const names=['uPosition','uNormal','uEdges','uAO','uThickness','uCurvature','uSignedMeanCurvature',
         'uMask','uInvert','uSeed','uScale','uContrast','uBreakup',
         'uBreakupHardness','uBreakupPosition','uBreakupWidth','uEdgeDistance',
         'uAngleThreshold','uSoftness','uDensity','uLength','uWidth',
         'uDirection','uGravity','uCavity','uAOProtect','uTopBias',
-        'uBreakupScale','uMin','uSize'];
+        'uBreakupScale','uMeanCurvatureRegion','uMeanCurvatureSmoothing','uMeanCurvatureCutoff','uMeanCurvatureIntensity','uMin','uSize'];
       this.smartMaterial=shader(quadVert,smartFrag,Object.fromEntries(names.map(n=>[n,U(null)])));
     }
     const u=this.smartMaterial.uniforms;
@@ -295,6 +295,7 @@ export class PeentGPU {
       uPosition:this.maps.position.texture,uNormal:this.maps.worldNormal.texture,
       uEdges:e.texture,uAO:this.maps.ao.texture,
       uThickness:this.maps.thickness.texture,uCurvature:this.maps.curvature.texture,
+      uSignedMeanCurvature:this.maps.signedMeanCurvature.texture,
       uMask:effect.mask,uInvert:effect.maskInvert?1:0,uSeed:effect.seed??layer.seed??0,
       uScale:effect.scale??3,uContrast:effect.contrast??1,uBreakup:effect.breakup??0,
       uBreakupHardness:effect.breakupHardness??.55,
@@ -305,6 +306,10 @@ export class PeentGPU {
       uDirection:effect.direction??35,uGravity:effect.gravity??1,
       uCavity:effect.cavity??.65,uAOProtect:effect.aoProtect??.35,
       uTopBias:effect.topBias??.75,uBreakupScale:effect.breakupScale??1,
+      uMeanCurvatureRegion:effect.meanCurvatureRegion??0,
+      uMeanCurvatureSmoothing:effect.meanCurvatureSmoothing??.5,
+      uMeanCurvatureCutoff:effect.meanCurvatureCutoff??.12,
+      uMeanCurvatureIntensity:effect.meanCurvatureIntensity??2,
       uMin:bounds.min,uSize:bounds.getSize(this._boundsSize||(this._boundsSize=new THREE.Vector3()))
     };
     for(const [name,value] of Object.entries(values))u[name].value=value;
@@ -521,6 +526,7 @@ export class PeentGPU {
       height:(this.interactive?null:this.padded.height?.texture)||last?.height?.texture,
       normal:this.padded.normal?.texture||this.normalResult?.texture,
       ao:this.maps.ao?.texture,curvature:this.maps.curvature?.texture,
+      signedMeanCurvature:this.maps.signedMeanCurvature?.texture,
       thickness:this.maps.thickness?.texture,position:this.maps.position?.texture,
       id:this.maps.id?.texture,worldNormal:this.maps.worldNormal?.texture,
       elevation:this.maps.elevation?.texture,opacity:this.maps.opacity?.texture,
@@ -598,7 +604,7 @@ export class PeentGPU {
       BaseColor:[this.padded.baseColor||last?.baseColor,1],Roughness:[this.padded.roughness||last?.roughness,2],
       Metallic:[this.padded.metalness||last?.metalness,2],Normal:[this.padded.normal||this.normalResult,0],
       Height:[this.padded.height||last?.height,2],AO:[this.maps.ao,2],
-      Curvature:[this.maps.curvature,2],Position:[this.maps.position,3],
+      Curvature:[this.maps.curvature,2],SignedMeanCurvature:[this.maps.signedMeanCurvature,0],Position:[this.maps.position,3],
       WorldNormal:[this.maps.worldNormal,0],Thickness:[this.maps.thickness,2],
       BentNormal:[this.maps.bentNormal,0],ID:[this.maps.id,0],
       Elevation:[this.maps.elevation,2],Opacity:[this.maps.opacity,2]
