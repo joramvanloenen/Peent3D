@@ -102,7 +102,7 @@ export function renderPresetThumbnail(canvas,preset){
  if(previewCache.size>80)previewCache.clear();
  previewCache.set(key,img);
 }
-export function createMaskPresetBrowser({getLayer,makeEffect,onApply,onStatus}){
+export function createMaskPresetBrowser({getLayer,getSelectedMaskId,makeEffect,onApply,onStatus}){
  let users=loadUserMaskPresets(window.localStorage);
  let chosenId='wear-fine',category='All',query='',saveMode=false;
  const overlay=$el('div','preset-overlay');
@@ -180,7 +180,7 @@ export function createMaskPresetBrowser({getLayer,makeEffect,onApply,onStatus}){
  }
  saveSelected.addEventListener('click',()=>{
    const layer=getLayer();if(!layer?.masks?.length)return;
-   const selected=layer.masks.find(x=>x.id===layer.selectedMaskId)||layer.masks.at(-1);
+   const selected=layer.masks.find(x=>x.id===getSelectedMaskId())||layer.masks.at(-1);
    persist([selected]);
  });
  saveStack.addEventListener('click',()=>{
