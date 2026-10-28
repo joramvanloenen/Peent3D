@@ -189,7 +189,15 @@ void main(){
    if(uMask==1)convex=softWearDistance(edges.r,uEdgeDistance,uSoftness)*smoothstep(uAngleThreshold,uAngleThreshold+12.,edges.b);
    if(uMask!=1)concave=softEdge(edges.g,uEdgeDistance*1.5,uSoftness)*smoothstep(uAngleThreshold,uAngleThreshold+12.,edges.a);
  }
- if(requiresAO)cavity=1.-texture(uAO,vUv).r;
+ if(requiresAO){
+   // Ray maps are baked at half resolution. At a UV boundary linear filtering
+   // can interpolate with transparent atlas gutters; straight RGB sampling
+   // would turn that transparent black into artificial AO (dark cracks).
+   // Un-premultiply by validity and default to unoccluded when no AO exists.
+   vec4 aoTexel=texture(uAO,vUv);
+   float ao=aoTexel.a>.0001?clamp(aoTexel.r/aoTexel.a,0.,1.):1.;
+   cavity=1.-ao;
+ }
  if(requiresHeight)height=clamp((p.y-uMin.y)/max(uSize.y,.0001),0.,1.);
  if(requiresNoise){
    fine=noise3(p*max(.05,uScale)*max(.2,uBreakupScale)*6.+uSeed,n);
