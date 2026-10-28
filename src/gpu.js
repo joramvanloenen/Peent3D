@@ -9,6 +9,7 @@ import layerFrag from './shaders/layer.frag.glsl?raw';
 import brushFrag from './shaders/brush.frag.glsl?raw';
 import normalFrag from './shaders/normal.frag.glsl?raw';
 import copyFrag from './shaders/copy.frag.glsl?raw';
+import padFrag from './shaders/pad.frag.glsl?raw';
 
 const CHANNELS=['baseColor','roughness','metalness','height'];
 const MESH_MAPS=['position','worldNormal','curvature','id','elevation','normal','opacity'];
@@ -66,7 +67,7 @@ export class PeentGPU {
     this.viewCamera=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
     this.raycaster=new THREE.Raycaster();
     this.size=512;this.sampleCount=16;this.rayDistance=.35;
-    this.maps={};this.composites=[];this.paintMasks=new Map();this.dirtyFrom=0;
+    this.maps={};this.composites=[];this.padded={};this.paintMasks=new Map();this.dirtyFrom=0;
     this.view='3d';this.channel='material';this.layers=[];
     this.gpuName=this.renderer.getContext().getParameter(this.renderer.getContext().RENDERER)||'WebGL2';
     this._resizer=new ResizeObserver(()=>this.resize());
@@ -96,6 +97,8 @@ export class PeentGPU {
     this.bvh?.dispose();
     disposeTargets(this.maps);this.maps={};
     disposeTargets(this.composites);this.composites=[];
+    disposeTargets(this.padded);this.padded={};
+    this.normalResult?.dispose();this.normalResult=null;
     for(const rt of this.paintMasks.values())rt.dispose();
     this.paintMasks.clear();
     this.model=result;
@@ -251,15 +254,35 @@ export class PeentGPU {
     for(let i=layers.length;i<this.composites.length;i++)disposeTargets(this.composites[i]);
     this.composites.length=layers.length;
     this.dirtyFrom=layers.length;
+    this._padFinal('height',this.composites.at(-1)?.height);
     this._bakeNormalFromHeight();
+    for(const name of ['baseColor','roughness','metalness'])this._padFinal(name,this.composites.at(-1)?.[name]);
+    this._padFinal('normal',this.normalResult);
     this._updateMaterial();
   }
+  _padFinal(name,source){
+    if(!source)return;
+    if(this.padded[name] && this.padded[name].width!==this.size){this.padded[name].dispose();this.padded[name]=null;}
+    if(!this.padded[name])this.padded[name]=target(this.size);
+    if(!this.padScratch || this.padScratch.width!==this.size){this.padScratch?.dispose();this.padScratch=target(this.size);}
+    const mat=shader(quadVert,padFrag,{uTexture:U(source.texture),uTexel:U(new THREE.Vector2(1/this.size,1/this.size))});
+    let current=source;
+    for(let pass=0;pass<4;pass++){
+      const output=pass%2===0?this.padScratch:this.padded[name];
+      mat.uniforms.uTexture.value=current.texture;
+      this._draw(mat,output);
+      current=output;
+    }
+    mat.dispose();
+    this.padded[name].texture.minFilter=THREE.LinearFilter;
+    this.padded[name].texture.magFilter=THREE.LinearFilter;
+  }
   _bakeNormalFromHeight(){
-    this.normalResult?.dispose();
-    this.normalResult=target(this.size);
+    if(this.normalResult && this.normalResult.width!==this.size){this.normalResult.dispose();this.normalResult=null;}
+    if(!this.normalResult)this.normalResult=target(this.size);
     const last=this.composites.at(-1);
     const mat=shader(quadVert,normalFrag,{
-      uHeight:U(last?.height?.texture||this.maps.height.texture),
+      uHeight:U(this.padded.height?.texture||last?.height?.texture||this.maps.height.texture),
       uCoverage:U(this.maps.position.texture),
       uTexel:U(new THREE.Vector2(1/this.size,1/this.size)),
       uStrength:U(8)
@@ -268,10 +291,10 @@ export class PeentGPU {
   }
   _updateMaterial(){
     const last=this.composites.at(-1);
-    this.previewMaterial.map=last?.baseColor?.texture||null;
-    this.previewMaterial.roughnessMap=last?.roughness?.texture||null;
-    this.previewMaterial.metalnessMap=last?.metalness?.texture||null;
-    this.previewMaterial.normalMap=this.normalResult?.texture||null;
+    this.previewMaterial.map=this.padded.baseColor?.texture||last?.baseColor?.texture||null;
+    this.previewMaterial.roughnessMap=this.padded.roughness?.texture||last?.roughness?.texture||null;
+    this.previewMaterial.metalnessMap=this.padded.metalness?.texture||last?.metalness?.texture||null;
+    this.previewMaterial.normalMap=this.padded.normal?.texture||this.normalResult?.texture||null;
     this.previewMaterial.color.set(0xffffff);
     this.previewMaterial.roughness=1;
     this.previewMaterial.metalness=1;
@@ -281,10 +304,10 @@ export class PeentGPU {
   getPreviewTexture(){
     const last=this.composites.at(-1);
     const outputs={
-      material:last?.baseColor?.texture,
-      baseColor:last?.baseColor?.texture,
-      roughness:last?.roughness?.texture,metalness:last?.metalness?.texture,
-      height:last?.height?.texture,normal:this.normalResult?.texture,
+      material:this.padded.baseColor?.texture||last?.baseColor?.texture,
+      baseColor:this.padded.baseColor?.texture||last?.baseColor?.texture,
+      roughness:this.padded.roughness?.texture||last?.roughness?.texture,metalness:this.padded.metalness?.texture||last?.metalness?.texture,
+      height:this.padded.height?.texture||last?.height?.texture,normal:this.padded.normal?.texture||this.normalResult?.texture,
       ao:this.maps.ao?.texture,curvature:this.maps.curvature?.texture,
       thickness:this.maps.thickness?.texture,position:this.maps.position?.texture,
       id:this.maps.id?.texture,worldNormal:this.maps.worldNormal?.texture,
@@ -359,9 +382,9 @@ export class PeentGPU {
     if(!this.maps.position)throw Error('Bake maps before exporting');
     const last=this.composites.at(-1);
     const all={
-      BaseColor:[last?.baseColor,1],Roughness:[last?.roughness,2],
-      Metallic:[last?.metalness,2],Normal:[this.normalResult,0],
-      Height:[last?.height,2],AO:[this.maps.ao,2],
+      BaseColor:[this.padded.baseColor||last?.baseColor,1],Roughness:[this.padded.roughness||last?.roughness,2],
+      Metallic:[this.padded.metalness||last?.metalness,2],Normal:[this.padded.normal||this.normalResult,0],
+      Height:[this.padded.height||last?.height,2],AO:[this.maps.ao,2],
       Curvature:[this.maps.curvature,2],Position:[this.maps.position,3],
       WorldNormal:[this.maps.worldNormal,0],Thickness:[this.maps.thickness,2],
       BentNormal:[this.maps.bentNormal,0],ID:[this.maps.id,0],
@@ -397,7 +420,8 @@ export class PeentGPU {
   setResolution(size){this.size=Math.min(2048,Math.max(256,size|0));}
   dispose(){
     this._running=false;this._resizer.disconnect();
-    disposeTargets(this.maps);disposeTargets(this.composites);
+    disposeTargets(this.maps);disposeTargets(this.composites);disposeTargets(this.padded);
+    this.padScratch?.dispose();
     for(const rt of this.paintMasks.values())rt.dispose();
     this.bvh?.dispose();this.normalResult?.dispose();
     this.controls.dispose();this.renderer.dispose();

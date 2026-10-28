@@ -28,7 +28,7 @@
 - Curvature is a **vertex-neighborhood approximation**, not a high-resolution multi-scale curvature baker.
 - AO/bent normal and thickness are GPU mesh-ray queries calculated at half map resolution, then sampled smoothly. The limited sample count and ray distance make them **local approximations**.
 - Missing UVs use a unique triangle atlas fallback. **Use properly authored UVs** for real assets; triangle-atlas padding and texel density are poor.
-- No dedicated UV padding/dilation or mipmap-generation pass yet; high-contrast UV seams may still be visible.
+- Final PBR channels now receive four GPU padding/dilation passes along UV island borders. Dedicated seam adjacency and mipmap generation are still future work.
 - Project files currently embed nonindexed triangle arrays; large scenes may produce large save files.
 
 ## Run it
@@ -92,6 +92,7 @@ The model is converted to an **object-space, centered/scaled preview mesh** for 
 - AO, bent normal and thickness share the same packed BVH and position/normal buffers.
 - Expensive geometric maps are computed on demand, not every frame.
 - Surface data and layer material results use GPU render targets.
+- Final materials are padded in a reusable GPU scratch target to reduce UV-seam bleeding.
 - Incremental layer composition caches previously evaluated lower layers.
 - Device-pixel-ratio is capped at 2 for viewport performance.
 - Model data is non-indexed deliberately; for extremely large assets, indexed/interleaved geometry and sparse texture tiling would be better.
