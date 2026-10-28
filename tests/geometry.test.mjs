@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {prepareScene,buildBVH} from '../src/geometry.js';
+import {buildEdgeNeighborhood,nearestFeatureDistance} from '../src/edge.js';
 test('nonindexed geometry, UVs and BVH cover all triangles',()=>{
   const result=prepareScene(new THREE.Mesh(new THREE.BoxGeometry(2,2,2),new THREE.MeshStandardMaterial()),'Cube');
   assert.equal(result.triangleCount,12);
@@ -58,4 +59,27 @@ test('overlapping source UVs are detected, but unwrapped planar UVs are not',()=
   assert.ok(box.uvOverlap>.4,'Default BoxGeometry stacks six UV faces');
   const plane=prepareScene(new THREE.Mesh(new THREE.PlaneGeometry(2,2,2,2),new THREE.MeshStandardMaterial()),'Plane');
   assert.ok(plane.uvOverlap<.02,'Unwrapped plane has no overlapping area');
+});
+
+test('3D feature-edge distance is continuous across differently unwrapped cube faces',()=>{
+  const box=prepareScene(new THREE.Mesh(new THREE.BoxGeometry(2,2,2),new THREE.MeshStandardMaterial()),'UV seam cube');
+  const atlas=buildEdgeNeighborhood(box.geometry);
+  assert.equal(atlas.segments.filter(e=>e.angle>15).length,12);
+  assert.equal(atlas.segments.filter(e=>e.angle<0).length,0);
+  const a=new THREE.Vector3(1.25,1.22,0);
+  const b=new THREE.Vector3(1.22,1.25,0);
+  const distA=nearestFeatureDistance(a,atlas.segments,15,+1);
+  const distB=nearestFeatureDistance(b,atlas.segments,15,+1);
+  assert.ok(Math.abs(distA-.03)<.0001);
+  assert.ok(Math.abs(distB-.03)<.0001);
+  assert.ok(Math.abs(distA-distB)<1e-6,'UV island boundaries must not introduce edge-distance discontinuities');
+  assert.equal(nearestFeatureDistance(a,atlas.segments,120,+1),Infinity,'Angle threshold must exclude 90 degree edges');
+  assert.equal(atlas.overflow,0,'Simple geometry should not exceed the local edge candidate cap');
+  atlas.dispose();
+});
+test('coplanar UV cuts do not become wear edges',()=>{
+  const plane=prepareScene(new THREE.Mesh(new THREE.PlaneGeometry(2,2,4,4),new THREE.MeshStandardMaterial()),'Planar UV splits');
+  const atlas=buildEdgeNeighborhood(plane.geometry);
+  assert.equal(atlas.segments.length,0);
+  atlas.dispose();
 });

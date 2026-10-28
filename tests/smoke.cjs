@@ -33,6 +33,24 @@ const path = require('node:path');
     await edgeInput.press('Tab');
     await page.waitForTimeout(350);
     assert.equal(await edgeInput.inputValue(),'0.07');
+    // Every generator exposes an Angle Threshold. Check per-effect isolation and
+    // multiple masks/blend modes on one material, not just an extra material layer.
+    const initialCount=await page.locator('.mask-stack-item').count();
+    assert.equal(initialCount,1);
+    await page.locator('#mask-add-type').selectOption('11');
+    await page.locator('#btn-add-smart-mask').click();
+    assert.equal(await page.locator('.mask-stack-item').count(),2);
+    await page.locator('.row:has(label:text-is("Combine")) select').selectOption('add');
+    const angleField=page.locator('.number-control:has(label:text-is("Angle threshold")) input[type=number]');
+    await angleField.fill('80');
+    await angleField.press('Tab');
+    assert.equal(await angleField.inputValue(),'80');
+    await page.locator('.mask-stack-item').first().locator('.mask-name').click();
+    assert.equal(await page.locator('.row:has(label:text-is("Generator")) select').inputValue(),'1');
+    await page.locator('.mask-stack-item').last().locator('.mask-name').click();
+    assert.equal(await page.locator('.row:has(label:text-is("Generator")) select').inputValue(),'11');
+    // Return to convex wear for the remainder of the original screenshot checks.
+    await page.locator('.mask-stack-item').first().locator('.mask-name').click();
     const controls={
       'Breakup intensity':'0.73',
       'Breakup hardness':'0.92',
@@ -67,6 +85,8 @@ const path = require('node:path');
     await page.locator('#channel-view').selectOption('smartMask');
     for(const mask of ['8','9','10','11','12']){
       await generator.selectOption(mask);
+      const allAngles=page.locator('.number-control:has(label:text-is("Angle threshold")) input[type=number]');
+      assert.equal(await allAngles.count(),1);
       await page.waitForTimeout(350);
       await page.screenshot({path:path.join(__dirname,'smoke-mask-'+mask+'.png'),timeout:20000});
     }
