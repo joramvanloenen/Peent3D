@@ -25,6 +25,18 @@ const path = require('node:path');
       return /baked|Bake error|initialization failed/i.test(s);
     },null,{timeout:180000});
     const status=await page.locator('#status').innerText();
+    assert.match(await page.locator('#mesh-info').innerText(),/Default cube/i);
+    assert.equal(await page.evaluate(()=>document.querySelector('#resolution option[value="2048"]').defaultSelected),true,
+      '2048 px must be the actual default for production meshes');
+    await page.locator('#btn-mesh-maps').click();
+    const dialog=page.locator('#mesh-bake-dialog');
+    await dialog.waitFor({state:'visible'});
+    assert.equal(await dialog.locator('#btn-bake').count(),1,'Bake is located inside the popup');
+    assert.equal(await page.locator('.inspector #btn-bake').count(),0,'Mesh bake controls should not occupy the inspector');
+    assert.match(await dialog.locator('#map-bake-status').innerText(),/baked/i);
+    await dialog.locator('#mesh-bake-cancel').click();
+    await dialog.waitFor({state:'hidden'});
+
     // Exercise live GPU shaders for the repaired low-poly edge baker and weathering generators.
     const generator=page.locator('.row:has(label:text-is("Generator")) select');
     await generator.selectOption('1');
@@ -193,6 +205,45 @@ const path = require('node:path');
     await page.locator('#mask-preset-delete').click();
     assert.equal(await page.locator('#mask-preset-grid .preset-card').count(),0,'Custom preset deletion should persist');
     await page.locator('.preset-close').click();
+
+    // Material library: persist one editable material and a complete material
+    // stack, search them, apply without rebaking mesh maps, and delete them.
+    const savedLayers=await page.locator('#layer-list .layer').count();
+    await page.locator('#btn-material-browser').click();
+    const materialOverlay=page.locator('#material-browser');
+    await materialOverlay.waitFor({state:'visible'});
+    assert.ok(await page.locator('#material-browser-grid .material-card').count()>=9,'Built-in materials should be visible');
+    await page.locator('#material-browser-search').fill('Base iron');
+    assert.equal(await page.locator('#material-browser-grid .material-card').count(),1);
+    await page.locator('#material-browser-search').fill('');
+    await page.locator('#btn-save-material').click();
+    await page.locator('#material-save-name').fill('GPU smoke custom material');
+    await page.locator('#material-save-selected').click();
+    await page.locator('.material-category').filter({hasText:'My materials'}).click();
+    await page.locator('#material-browser-grid .material-card').filter({hasText:'GPU smoke custom material'}).click();
+    assert.match(await page.locator('#material-browser-details').innerText(),/GPU smoke custom material/);
+    await page.locator('#material-apply-add').click();
+    assert.equal(await page.locator('#layer-list .layer').count(),savedLayers+1);
+    await page.locator('#btn-material-browser').click();
+    await page.locator('#btn-save-material').click();
+    await page.locator('#material-save-name').fill('GPU smoke entire stack');
+    await page.locator('#material-save-stack').click();
+    await page.locator('.material-category').filter({hasText:'My materials'}).click();
+    await page.locator('#material-browser-grid .material-card').filter({hasText:'GPU smoke entire stack'}).click();
+    await page.screenshot({path:path.join(__dirname,'smoke-material-browser.png'),timeout:20000});
+    await page.locator('#material-apply-replace').click();
+    assert.equal(await page.locator('#layer-list .layer').count(),savedLayers+1,
+      'Restoring a saved material stack must recreate its editable layers');
+    assert.match(await page.locator('#status').innerText(),/material/i);
+    await page.locator('#btn-material-browser').click();
+    await page.locator('.material-category').filter({hasText:'My materials'}).click();
+    await page.locator('#material-browser-grid .material-card').filter({hasText:'GPU smoke entire stack'}).click();
+    await page.locator('#material-delete').click();
+    await page.locator('#material-browser-grid .material-card').filter({hasText:'GPU smoke custom material'}).click();
+    await page.locator('#material-delete').click();
+    assert.equal(await page.locator('#material-browser-grid .material-card').count(),0,'Custom materials should be deletable');
+    await page.locator('.material-browser-close').click();
+    await materialOverlay.waitFor({state:'hidden'});
     const accent=await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--accent').trim());
     assert.equal(accent,'#f28c40');
     const scroll=await page.locator('.inspector').evaluate(el=>{
