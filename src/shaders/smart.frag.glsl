@@ -135,13 +135,13 @@ float verticalRunoff(vec3 p,vec3 n){
 }
 // Keep the fully worn core intact; only chip the partially worn transition.
 // Position/width are measured in mask intensity (0=unworn, 1=fully worn).
-float transitionBreakup(float coverage,float grunge){
+float transitionBreakup(float coverage,float grunge,float edgeCoverage){
  float halfWidth=clamp(uBreakupWidth,.02,.95)*.5;
  float lo=clamp(uBreakupPosition-halfWidth,.001,.94);
  float hi=clamp(uBreakupPosition+halfWidth,lo+.02,.975);
  float feather=min(.085,(hi-lo)*.22);
- float band=smoothstep(lo,lo+feather,coverage)*
-           (1.-smoothstep(hi-feather,hi,coverage));
+ float band=smoothstep(lo,lo+feather,edgeCoverage)*
+           (1.-smoothstep(hi-feather,hi,edgeCoverage));
  // Hardness controls grunge's contrast/threshold, independent from intensity.
  float softness=mix(.28,.012,clamp(uBreakupHardness,0.,1.));
  float breakupNoise=smoothstep(.5-softness,.5+softness,grunge);
@@ -196,7 +196,7 @@ void main(){
  }else if(uMask==12)result=scratches3(p,n);
  result=clamp((result-.5)*uContrast+.5,0.,1.);
  if(uBreakup>0.){
-   if(uMask==1)result=transitionBreakup(result,fine);
+   if(uMask==1)result=transitionBreakup(result,fine,convex);
    else if(uMask<=7||uMask==10||uMask==11){
      float softness=mix(.28,.012,clamp(uBreakupHardness,0.,1.));
      result*=mix(1.,smoothstep(.5-softness,.5+softness,fine),uBreakup);
