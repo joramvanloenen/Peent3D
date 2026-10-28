@@ -342,7 +342,7 @@ export class PeentGPU {
     this.channel=channel;
     this.controls.enabled=view==='3d';
     this._updateMaterial();
-    if(view==='3d'){
+    if(view==='3d' && this.mesh){
       if(channel==='material')this.mesh.material=this.previewMaterial;
       else{
         if(!this.channelMaterial)this.channelMaterial=new THREE.MeshBasicMaterial({side:THREE.DoubleSide});
