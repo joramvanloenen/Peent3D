@@ -44,3 +44,31 @@ ipcMain.handle('save-file',async(event,payload)=>{
   await fs.writeFile(filePath,Buffer.from(bytes));
   return{path:filePath};
 });
+
+const materialLibraryPath=()=>path.join(app.getPath('userData'),'material-library-v1.json');
+ipcMain.handle('material-library-read',async event=>{
+  if(event.sender!==mainWindow?.webContents)return {error:'Unauthorized'};
+  try{
+    const raw=await fs.readFile(materialLibraryPath(),'utf8');
+    if(raw.length>48*1024*1024)return {error:'Material library exceeds 48 MB'};
+    return {raw};
+  }catch(error){
+    if(error.code==='ENOENT')return {raw:null};
+    return {error:error.message};
+  }
+});
+ipcMain.handle('material-library-write',async(event,raw)=>{
+  if(event.sender!==mainWindow?.webContents)return {error:'Unauthorized'};
+  if(typeof raw!=='string'||raw.length>48*1024*1024)return {error:'Invalid material library size'};
+  try{
+    const data=JSON.parse(raw);
+    if(data?.format!=='peent3d-material-library'||data?.version!==1||
+       !Array.isArray(data.materials)||data.materials.length>80)return {error:'Invalid material library'};
+    const file=materialLibraryPath();
+    await fs.mkdir(path.dirname(file),{recursive:true});
+    const temporary=file+'.tmp';
+    await fs.writeFile(temporary,raw,'utf8');
+    await fs.rename(temporary,file);
+    return {saved:true};
+  }catch(error){return {error:error.message};}
+});
