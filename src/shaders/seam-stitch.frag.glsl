@@ -13,15 +13,16 @@ vec4 entryAt(int i){
  return texelFetch(uUVSeams,ivec2(i%uAtlasWidth,i/uAtlasWidth),0);
 }
 void main(){
- float own=texture(uSource,vUv).r;
+ vec4 source=texture(uSource,vUv);
+ float own=source.r;
  vec4 pos=texture(uPosition,vUv);
- if(pos.a<.5){frag=vec4(vec3(own),1.);return;}
+ if(pos.a<.5){frag=source;return;}
  vec3 encoded=texture(uTriangleIndex,vUv).rgb;
  int triangle=int(encoded.r+.5)+256*int(encoded.g+.5)+65536*int(encoded.b+.5);
  int offset=triangle*uAtlasStride;
  vec4 header=entryAt(offset);
  int count=int(header.x+.5);
- if(count==0){frag=vec4(vec3(own),1.);return;}
+ if(count==0){frag=source;return;}
  float influence=0.;
  float accum=0.;
  for(int k=0;k<3;k++){
@@ -55,5 +56,5 @@ void main(){
   // move 25% toward it (the previous calculation left a visible discontinuity).
   repaired=mix(own,average,clamp(influence,0.,1.)*.5);
  }
- frag=vec4(vec3(clamp(repaired,0.,1.)),1.);
+ frag=vec4(vec3(clamp(repaired,0.,1.)),source.a);
 }
