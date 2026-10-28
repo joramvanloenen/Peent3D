@@ -64,6 +64,21 @@ const path = require('node:path');
       await input.press('Tab');
       assert.equal(await input.inputValue(),value,'Control not retained: '+name);
     }
+    // Regression: previous max 0.95 and a hard shader cutoff at 0.975 meant
+    // users could never carry wear breakup all the way into the edge core.
+    const edgePosition=page.locator('.number-control:has(label:text-is("Breakup position")) input[type=number]');
+    const edgeBand=page.locator('.number-control:has(label:text-is("Breakup band width")) input[type=number]');
+    await edgePosition.fill('1');
+    await edgePosition.press('Tab');
+    await edgeBand.fill('2');
+    await edgeBand.press('Tab');
+    assert.equal(await edgePosition.inputValue(),'1');
+    assert.equal(await edgeBand.inputValue(),'2');
+    await page.waitForTimeout(300);
+    await page.screenshot({path:path.join(__dirname,'smoke-edge-full-breakup.png'),timeout:20000});
+    // Existing control behavior (including defaults and resets) stays intact.
+    await edgePosition.fill('0.61');await edgePosition.press('Tab');
+    await edgeBand.fill('0.46');await edgeBand.press('Tab');
     // Exercise a burst of changes without requiring costly work for every input.
     const burstStart=Date.now();
     await page.evaluate(()=>{

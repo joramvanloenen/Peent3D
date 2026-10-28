@@ -363,8 +363,11 @@ function renderProperties(){
        slider('Breakup hardness','breakupHardness',0,1,.01,effect);
        slider('Grunge scale','breakupScale',.2,8,.1,effect);
        if(effect.mask===1){
-         slider('Breakup position','breakupPosition',.05,.95,.01,effect);
-         slider('Breakup band width','breakupWidth',.05,.95,.01,effect);
+         slider('Breakup position','breakupPosition',0,1,.01,effect);
+         slider('Breakup band width','breakupWidth',.01,2,.01,effect);
+         const bandHelp=document.createElement('p');bandHelp.className='property-help';
+         bandHelp.textContent='Position 0 = unworn surface, 1 = physical edge. Set Position to 1 to chip right into the 100% worn edge core. Band width up to 2 can cover the full edge-to-surface transition; existing defaults keep the core intact.';
+         root.append(bandHelp);
        }
      }
      if([1,2,10,9,11].includes(effect.mask)){

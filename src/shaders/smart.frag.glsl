@@ -138,12 +138,16 @@ float verticalRunoff(vec3 p,vec3 n){
  return (wx*dripPlane(p.zy,uSeed+5.)+wz*dripPlane(p.xy,uSeed+11.))*
         smoothstep(.12,.60,1.-abs(n.y));
 }
-// Keep the fully worn core intact; only chip the partially worn transition.
-// Position/width are measured in mask intensity (0=unworn, 1=fully worn).
+// Breakup position is the centre of a coverage-domain band: 0=outside,
+// 1=the physical worn-edge core. The band is deliberately NOT clamped
+// inside [0,1]: at position 1 the upper shoulder MUST extend beyond 1,
+// otherwise smoothstep() always zeros the breakup at the exact edge.
+// Original defaults retain the smooth solid core; users can now chip it.
 float transitionBreakup(float coverage,float grunge,float edgeCoverage){
- float halfWidth=clamp(uBreakupWidth,.02,.95)*.5;
- float lo=clamp(uBreakupPosition-halfWidth,.001,.94);
- float hi=clamp(uBreakupPosition+halfWidth,lo+.02,.975);
+ float halfWidth=clamp(uBreakupWidth,.01,2.)*.5;
+ float centre=clamp(uBreakupPosition,0.,1.);
+ float lo=centre-halfWidth;
+ float hi=centre+halfWidth;
  float feather=min(.085,(hi-lo)*.22);
  float band=smoothstep(lo,lo+feather,edgeCoverage)*
            (1.-smoothstep(hi-feather,hi,edgeCoverage));

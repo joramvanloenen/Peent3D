@@ -2,7 +2,7 @@
 
 **Peent3D** is an early-stage, GPU-based texture authoring application for **Windows**, designed for **low-poly meshes**. It runs as an Electron desktop application with a WebGL2 GPU backend, Three.js PBR preview, reusable UV-space mesh data, and a layer-based material editor.
 
-> **Status: v0.2.6 experimental preview, validated with Windows WebGL2 GUI smoke tests.** This repository is a substantial initial implementation, **not** feature-parity with Adobe Substance 3D Painter. Test the baker on your own meshes before depending on exported data. No commercial licensing or compatibility with Adobe is implied.
+> **Status: v0.2.7 experimental preview, validated with Windows WebGL2 GUI smoke tests.** This repository is a substantial initial implementation, **not** feature-parity with Adobe Substance 3D Painter. Test the baker on your own meshes before depending on exported data. No commercial licensing or compatibility with Adobe is implied.
 
 ## What is implemented
 
@@ -19,7 +19,7 @@
 - **Topology-based hard-edge baker**: identifies signed convex and concave dihedral angles across shared mesh edges, unaffected by UV seams. Stores **physical edge distance** in normalized model-space units; independent of texture resolution.
 - **Standalone Signed Mean Curvature smart mask** (generator 13): welded 3D cotangent-weighted Laplace–Beltrami estimate, robust per-vertex area normalization, signed convex/concave detection and three edge-aware smoothing scales. Smoothing/cutoff/intensity/region are independently editable per mask. This is **separate from** the legacy curvature and topology-driven edge distance maps.
 - **13 GPU procedural smart-mask generators**: convex edge wear, concave crevices, AO dirt, height gradients, thin parts, grunge, gravity streaks, leaks/drips, oxidation, deposited dust, and directional natural scratches.
-- **Edge wear controls**: Edge Distance, Angle Threshold, softness and AO protection plus new **Breakup intensity**, **Breakup hardness**, **Breakup position**, and **Breakup band width**. Edge grunge affects only the intermediate transition pixels; the solid 100% convex wear core remains unaltered. Breakup position and width specify which mask-strength interval can chip away.
+- **Edge wear controls**: Edge Distance, Angle Threshold, softness, AO protection, **Breakup intensity**, **Breakup hardness**, **Breakup position** (0–1), and **Breakup band width** (0.01–2). The breakup band extends beyond the [0,1] coverage limits when positioned at an edge, allowing noise to erode **100% worn edge cores**. Defaults retain clean solid edge cores. Move Position to 1 to allow breakup all the way to the physical edge.
 - Other generators expose density, line width, length, gravity, top bias, and cavity influence as appropriate.
 - A dedicated **smart-mask render target per layer** caches procedural effects once, reused for all four PBR channels. No more recomputing expensive multi-octave scratches four times.
 - **Preset library** for base iron, paint, fine edge wear, cavity grime, rust, dust, streaks, leaks and scratches.
