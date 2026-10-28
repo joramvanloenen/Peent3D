@@ -24,7 +24,7 @@ function target(size,type=THREE.HalfFloatType){
 }
 function shader(vertex,fragment,uniforms){
   return new THREE.RawShaderMaterial({glslVersion:THREE.GLSL3,vertexShader:vertex,fragmentShader:fragment,
-    depthTest:false,depthWrite:false,transparent:false,uniforms});
+    side:THREE.DoubleSide,depthTest:false,depthWrite:false,transparent:false,uniforms});
 }
 function U(value){return {value};}
 function disposeTargets(collection){
