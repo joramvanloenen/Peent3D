@@ -90,6 +90,29 @@ const path = require('node:path');
       await page.waitForTimeout(350);
       await page.screenshot({path:path.join(__dirname,'smoke-mask-'+mask+'.png'),timeout:20000});
     }
+    // Signed mean curvature is an additional independent mask, not a
+    // replacement for existing curvature/edge generators.
+    await page.locator('#mask-add-type').selectOption('13');
+    await page.locator('#btn-add-smart-mask').click();
+    assert.equal(await page.locator('.mask-stack-item').count(),3);
+    assert.equal(await page.locator('.row:has(label:text-is("Generator")) select').inputValue(),'13');
+    await page.locator('.row:has(label:text-is("Curvature region")) select').selectOption('1');
+    for(const [name,value] of [
+      ['Curvature smoothing','0.75'],
+      ['Curvature cutoff','0.19'],
+      ['Curvature intensity','3.2']
+    ]){
+      const control=page.locator('.number-control').filter({has:page.locator('label',{hasText:name})});
+      const input=control.locator('input[type=number]');
+      await input.fill(value);await input.press('Tab');
+      assert.equal(await input.inputValue(),value,'Curvature property failed: '+name);
+    }
+    await page.locator('#channel-view').selectOption('signedMeanCurvature');
+    await page.waitForTimeout(350);
+    await page.screenshot({path:path.join(__dirname,'smoke-signed-curvature-map.png'),timeout:20000});
+    await page.locator('#channel-view').selectOption('smartMask');
+    await page.waitForTimeout(350);
+    await page.screenshot({path:path.join(__dirname,'smoke-signed-curvature-mask.png'),timeout:20000});
     await page.locator('#channel-view').selectOption('material');
     const accent=await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--accent').trim());
     assert.equal(accent,'#f28c40');
