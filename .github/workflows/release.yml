@@ -24,6 +24,9 @@ jobs:
         run: npm test
       - name: Build renderer
         run: npm run build
+      - name: Validate GPU shaders, smart masks and numeric controls
+        run: node tests/smoke.cjs
+        timeout-minutes: 6
       - name: Package Windows installer and portable EXE
         run: npx electron-builder --win nsis portable --publish never
         env:
@@ -31,16 +34,17 @@ jobs:
       - name: Publish GitHub release with direct downloadable EXEs
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.1.0-preview
+          tag_name: v0.2.0-preview
           target_commitish: main
-          name: Peent3D v0.1.0 — Windows preview
+          name: Peent3D v0.2.0 — Windows smart materials preview
           prerelease: true
           body: |
-            Experimental Windows build of Peent3D.
+            Peent3D v0.2.0: topology-based convex/concave edge baker, adjustable world-space Edge Distance, dedicated dust/rust/leak/streak/scratch smart masks, neutral dark-grey/orange UI, scrollable inspector, and directly editable numeric values with reset buttons.
+            Windows WebGL2 GPU smoke test runs before publishing.
             **Download either the Setup installer or the portable executable under Assets below.**
             Requires Windows 10/11 and a WebGL2-capable GPU.
             Windows SmartScreen may warn because this preview is not code-signed.
           files: |
-            release/Peent3D Setup 0.1.0.exe
-            release/Peent3D 0.1.0.exe
+            release/Peent3D Setup 0.2.0.exe
+            release/Peent3D 0.2.0.exe
           fail_on_unmatched_files: true
