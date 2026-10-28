@@ -69,9 +69,9 @@ test('AO is stitched at its baked map source, not just at the final smart mask',
  const compositing=gpu.indexOf('this.compose();',rays);
  assert.ok(rays>=0&&compositing>rays);
  const stitch=shader('seam-stitch.frag.glsl');
- assert.match(stitch,/float own=source\.r;/);
+ assert.match(stitch,/float own=source\.a>\.0001\?source\.r\/source\.a:0\./);
  assert.match(stitch,/frag=source;return;/);
- assert.match(stitch,/source\.a\);/);
+ assert.match(stitch,/source\.a\),source\.a\);/);
  assert.match(stitch,/mix\(own,average,clamp\(influence,0\.,1\.\)\*\.5\)/);
 });
 

@@ -14,7 +14,9 @@ vec4 entryAt(int i){
 }
 void main(){
  vec4 source=texture(uSource,vUv);
- float own=source.r;
+ // AO is alpha-premultiplied at filtered UV gutters; recover its unoccluded
+ // value before averaging across the seam. Smart masks have alpha=1.
+ float own=source.a>.0001?source.r/source.a:0.;
  vec4 pos=texture(uPosition,vUv);
  if(pos.a<.5){frag=source;return;}
  vec3 encoded=texture(uTriangleIndex,vUv).rgb;
@@ -42,7 +44,9 @@ void main(){
   target+=inside.xy*inset;
   if(any(lessThan(target,vec2(0.)))||any(greaterThan(target,vec2(1.))))continue;
   if(texture(uPosition,target).a<.5)continue;
-  float partner=texture(uSource,target).r;
+  vec4 partnerTexel=texture(uSource,target);
+  if(partnerTexel.a<.0001)continue;
+  float partner=partnerTexel.r/partnerTexel.a;
   // Symmetric attenuation: both sides converge to the same midpoint at
   // the physical seam; away from the seam the original texture is retained.
   float weight=1.-smoothstep(0.,worldRadius,dist);
@@ -56,5 +60,6 @@ void main(){
   // move 25% toward it (the previous calculation left a visible discontinuity).
   repaired=mix(own,average,clamp(influence,0.,1.)*.5);
  }
- frag=vec4(vec3(clamp(repaired,0.,1.)),source.a);
+ // Re-premultiply by local validity for stable bilinear atlas filtering.
+ frag=vec4(vec3(clamp(repaired,0.,1.)*source.a),source.a);
 }
