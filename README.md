@@ -2,7 +2,7 @@
 
 **Peent3D** is an early-stage, GPU-based texture authoring application for **Windows**, designed for **low-poly meshes**. It runs as an Electron desktop application with a WebGL2 GPU backend, Three.js PBR preview, reusable UV-space mesh data, and a layer-based material editor.
 
-> **Status: v0.2.1 experimental preview, validated with Windows WebGL2 GUI smoke tests.** This repository is a substantial initial implementation, **not** feature-parity with Adobe Substance 3D Painter. Test the baker on your own meshes before depending on exported data. No commercial licensing or compatibility with Adobe is implied.
+> **Status: v0.2.2 experimental preview, validated with Windows WebGL2 GUI smoke tests.** This repository is a substantial initial implementation, **not** feature-parity with Adobe Substance 3D Painter. Test the baker on your own meshes before depending on exported data. No commercial licensing or compatibility with Adobe is implied.
 
 ## What is implemented
 
@@ -34,7 +34,7 @@
 - Curvature is a **vertex-neighborhood approximation**, not a high-resolution multi-scale curvature baker. Accurate convex/concave hard-edge masks now use **topology-based angle/distance baking**, not this approximate curvature field.
 - AO/bent normal and thickness are GPU mesh-ray queries calculated at half map resolution, then sampled smoothly. The limited sample count and ray distance make them **local approximations**.
 - Weathering, scratches and leaking are **procedural approximations** informed by normal, edge and AO maps, rather than a physical exposure/erosion simulation. Review real-world assets and tune parameters for each model.
-- Missing UVs use a unique triangle atlas fallback. **Use properly authored UVs** for real assets; triangle-atlas padding and texel density are poor.
+- Overlapping UV layouts are detected on import and flagged because shared UVs cannot store distinct geometric maps for multiple surfaces. Missing UVs use a unique triangle atlas fallback. **Use properly authored UVs** for real assets; triangle-atlas padding and texel density are poor.
 - Final PBR channels now receive four GPU padding/dilation passes along UV island borders. Dedicated seam adjacency and mipmap generation are still future work.
 - Project files currently embed nonindexed triangle arrays; large scenes may produce large save files.
 
