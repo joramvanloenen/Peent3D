@@ -315,6 +315,26 @@ function renderProperties(){
  slider('Pattern scale','scale',.1,20,.1);
  slider('Variation','variation',0,1,.01);
  section('Smart mask stack');
+ const seamRow=document.createElement('div');seamRow.className='seam-fix-row';
+ const seamToggle=document.createElement('input');seamToggle.type='checkbox';
+ seamToggle.id='seam-fix-enabled';seamToggle.checked=gpu.seamFixEnabled;
+ const seamLabel=document.createElement('label');seamLabel.htmlFor='seam-fix-enabled';
+ seamLabel.textContent='Fix UV island seams in smart masks';
+ seamRow.append(seamToggle,seamLabel);
+ const updateSeams=()=>{
+   for(let i=0;i<layers.length;i++)gpu.markDirty(i,{smart:true,effectChanged:false});
+   mark(0,null,null,false);
+ };
+ seamToggle.addEventListener('change',()=>{gpu.seamFixEnabled=seamToggle.checked;updateSeams();});
+ root.append(seamRow);
+ root.append(numericControl({
+   name:'Seam blend width (px)',value:gpu.seamFixWidth,min:1,max:12,
+   step:.5,defaultValue:3.5,
+   onChange:value=>{gpu.seamFixWidth=value;updateSeams();}
+ }));
+ const seamHint=document.createElement('p');seamHint.className='property-help';
+ seamHint.textContent='Matches 3D-welded mesh edges across separate UV islands, then blends the final procedural mask across both sides. Different mesh objects are never joined.';
+ root.append(seamHint);
  const addRow=document.createElement('div');addRow.className='mask-add-row';
  const addSelect=document.createElement('select');addSelect.id='mask-add-type';
  addSelect.setAttribute('aria-label','Add smart mask generator');
