@@ -132,6 +132,7 @@ export class PeentGPU {
     this.maskScratch?.dispose();this.maskScratch=null;
     this.seamStitchMaterial?.dispose();this.seamStitchMaterial=null;
     this.seamCopyMaterial?.dispose();this.seamCopyMaterial=null;
+    this.seamScratch?.dispose();this.seamScratch=null;
     this.normalResult?.dispose();this.normalResult=null;
     for(const rt of this.paintMasks.values())rt.dispose();
     this.paintMasks.clear();
@@ -181,32 +182,61 @@ export class PeentGPU {
     const mat=this.uvBakeMaterial;
     mat.uniforms.uMode.value=9;
     mat.uniforms.uAngleThreshold.value=threshold;
+    mat.uniforms.uUVTexel.value.set(1/resolution,1/resolution);
     this._draw(mat,rt,this.uvScene);
-    rt.texture.magFilter=THREE.NearestFilter;
-    this.edgeMaps.set(key,rt);
+    const padded=this._padBakeMap(rt,2);
+    padded.texture.magFilter=THREE.NearestFilter;
+    this.edgeMaps.set(key,padded);
     // Bound persistent caches; a draggable angle control must not leak VRAM.
     if(this.edgeMaps.size>12){
       const protectedKey='0:'+this.size;
       const victim=[...this.edgeMaps.keys()].find(k=>k!==key&&k!==protectedKey);
       if(victim){this.edgeMaps.get(victim).dispose();this.edgeMaps.delete(victim);}
     }
-    return rt;
+    return padded;
+  }
+  _padBakeMap(source,passes=3){
+    // A short nearest-valid expansion is required before half-resolution ray
+    // tracing; otherwise missing UV corner samples turn into false occlusion.
+    // Preserve RGBA (not just color) so positions/triangle IDs remain valid.
+    const width=source.width,height=source.height;
+    const scratch=target(width),output=target(width);
+    const material=shader(quadVert,padFrag,{
+      uTexture:U(source.texture),uTexel:U(new THREE.Vector2(1/width,1/height))
+    });
+    let current=source;
+    for(let pass=0;pass<passes;pass++){
+      const next=pass%2===0?scratch:output;
+      material.uniforms.uTexture.value=current.texture;
+      this._draw(material,next);
+      current=next;
+    }
+    material.dispose();
+    if(current===scratch)output.dispose();
+    else scratch.dispose();
+    source.dispose();
+    return current;
   }
   _bakeRaster(){
     const bounds=this.model.geometry.boundingBox;
     const size=bounds.getSize(new THREE.Vector3());
     this.uvBakeMaterial=shader(uvVert,uvFrag,{
-      uMode:U(0),uMin:U(bounds.min.clone()),uSize:U(size),
+      uMode:U(0),uMin:U(bounds.min.clone()),uSize:U(size),uUVTexel:U(new THREE.Vector2(1/this.size,1/this.size)),
       uFeatureSegments:U(this.features.texture),
       uFeatureWidth:U(this.features.width),
       uFeatureStride:U(this.features.stride),
       uAngleThreshold:U(0)
     });
+    this.uvBakeMaterial.uniforms.uUVTexel.value.set(1/this.size,1/this.size);
     for(let i=0;i<MESH_MAPS.length-1;i++){
       const name=MESH_MAPS[i];
       this.maps[name]=target(this.size);
       this.uvBakeMaterial.uniforms.uMode.value=i;
       this._draw(this.uvBakeMaterial,this.maps[name],this.uvScene);
+      // Fill only invalid pixels (alpha=0), preserving every original texel.
+      // This ensures nearest and bilinear lookups near UV corners don't
+      // sample clear-black gutter values as if they were geometry.
+      if(name!=='opacity')this.maps[name]=this._padBakeMap(this.maps[name],3);
     }
     this.maps.edges=this._edgeMap(0,false);
   }
@@ -228,8 +258,15 @@ export class PeentGPU {
       this.maps[name].texture.magFilter=THREE.LinearFilter;
       mat.uniforms.uMode.value=i;
       this._draw(mat,this.maps[name]);
+      this.maps[name]=this._padBakeMap(this.maps[name],4);
+      this.maps[name].texture.minFilter=THREE.LinearFilter;
+      this.maps[name].texture.magFilter=THREE.LinearFilter;
     }
     mat.dispose();
+    // Stitch AO in its OWN baked source texture. Repairing only the final
+    // smart mask cannot recover missing/black AO samples at UV boundaries.
+    if(this.seamFixEnabled && this.uvSeams?.stats.directionalLinks)
+      this._stitchScalarMap(this.maps.ao,this.maps.ao.width);
   }
   async bake(onProgress=()=>{}){
     if(!this.model)throw Error('Load a mesh first');
@@ -329,8 +366,11 @@ export class PeentGPU {
     this.dirtyEffects.delete(key);
     return rt.texture;
   }
-  _stitchSmartMask(out,width){
+  _stitchScalarMap(out,width){
     if(!this.seamFixEnabled||!this.uvSeams?.stats.directionalLinks)return;
+    if(!this.seamScratch||this.seamScratch.width!==width){
+      this.seamScratch?.dispose();this.seamScratch=target(width);
+    }
     if(!this.seamStitchMaterial){
       this.seamStitchMaterial=shader(quadVert,seamStitchFrag,{
         uSource:U(out.texture),uPosition:U(this.maps.position.texture),
@@ -341,7 +381,7 @@ export class PeentGPU {
         uResolution:U(width),uSeamPixels:U(this.seamFixWidth)
       });
       this.seamCopyMaterial=shader(quadVert,copyFrag,{
-        uTexture:U(this.maskScratch.texture),uMode:U(0),
+        uTexture:U(this.seamScratch.texture),uMode:U(0),
         uMin:U(new THREE.Vector3()),uSize:U(new THREE.Vector3(1,1,1))
       });
     }
@@ -356,9 +396,12 @@ export class PeentGPU {
     u.uSeamPixels.value=this.seamFixWidth;
     // The first pass never samples its own render target. The second copies
     // the corrected mask back into the per-layer cache, keeping scratch reuse.
-    this._draw(this.seamStitchMaterial,this.maskScratch);
-    this.seamCopyMaterial.uniforms.uTexture.value=this.maskScratch.texture;
+    this._draw(this.seamStitchMaterial,this.seamScratch);
+    this.seamCopyMaterial.uniforms.uTexture.value=this.seamScratch.texture;
     this._draw(this.seamCopyMaterial,out);
+  }
+  _stitchSmartMask(out,width){
+    this._stitchScalarMap(out,width);
   }
   _renderSmartMask(layer,bounds){
     // Backward-compatible fallback for projects predating stacked effects.
@@ -705,7 +748,7 @@ export class PeentGPU {
     this._running=false;this._resizer.disconnect();
     disposeTargets(this.maps);disposeTargets(this.composites);disposeTargets(this.padded);
     this.features?.dispose();this.runoff?.dispose();this.uvSeams?.dispose();this.uvBakeMaterial?.dispose();
-    this.seamStitchMaterial?.dispose();this.seamCopyMaterial?.dispose();
+    this.seamStitchMaterial?.dispose();this.seamCopyMaterial?.dispose();this.seamScratch?.dispose();
     for(const rt of this.edgeMaps.values())if(rt!==this.maps.edges)rt.dispose();this.edgeMaps.clear();
     for(const rt of this.effectMasks.values())rt.dispose();this.effectMasks.clear();
     this.maskScratch?.dispose();this.maskBlendMaterial?.dispose();

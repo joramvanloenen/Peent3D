@@ -2,6 +2,8 @@ precision highp float;
 in vec3 position;
 in vec3 normal;
 in vec2 uv;
+in vec2 aUvCentroid;
+uniform vec2 uUVTexel;
 in float aCurvature;
 in vec3 aSignedMeanCurvature;
 in float aId;
@@ -28,5 +30,10 @@ void main(){
  vEdgeAngles=aEdgeAngles;
  vAltitude=aEdgeAltitude;
  vBarycentric=aBarycentric;
- gl_Position=vec4(uv*2.-1.,0.,1.);
+ // Expand each UV triangle at its raster boundary in pixel space. A plain
+ // raster misses skinny tips and leaves isolated black holes near vertices.
+ // The shared material UVs remain unchanged; this affects only mesh bakes.
+ vec2 uvDirection=(uv-aUvCentroid)/max(length(uv-aUvCentroid),1.e-8);
+ vec2 coveredUV=uv+uUVTexel*uvDirection*.72;
+ gl_Position=vec4(coveredUV*2.-1.,0.,1.);
 }

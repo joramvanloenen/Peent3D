@@ -51,7 +51,9 @@ void main(){
  float repaired=own;
  if(influence>0.){
   float average=accum/influence;
-  repaired=mix(own,.5*(own+average),clamp(influence,0.,1.));
+  // At the seam both islands must converge to the SAME midpoint, not only
+  // move 25% toward it (the previous calculation left a visible discontinuity).
+  repaired=mix(own,average,clamp(influence,0.,1.)*.5);
  }
  frag=vec4(vec3(clamp(repaired,0.,1.)),1.);
 }

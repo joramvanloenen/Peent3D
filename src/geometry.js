@@ -113,6 +113,16 @@ export function prepareScene(root, name = 'Untitled') {
   g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  // Per-triangle UV centroid lets the baker expand raster coverage ~0.7 texel,
+  // capturing subpixel-thin corners without moving any actual geometry or
+  // changing the UVs of the visible model.
+  const centroids=new Float32Array(uvs.length);
+  for(let i=0;i<uvs.length;i+=6){
+    const x=(uvs[i]+uvs[i+2]+uvs[i+4])/3;
+    const y=(uvs[i+1]+uvs[i+3]+uvs[i+5])/3;
+    for(let k=0;k<3;k++){centroids[i+k*2]=x;centroids[i+k*2+1]=y;}
+  }
+  g.setAttribute('aUvCentroid',new THREE.BufferAttribute(centroids,2));
   g.setAttribute('aId', new THREE.Float32BufferAttribute(ids, 1));
   g.setAttribute('aMeshId',new THREE.Float32BufferAttribute(meshIDs,1));
   g.computeBoundingBox();
