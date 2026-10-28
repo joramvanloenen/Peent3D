@@ -34,17 +34,17 @@ jobs:
       - name: Publish GitHub release with direct downloadable EXEs
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.4-preview
+          tag_name: v0.2.5-preview
           target_commitish: main
-          name: Peent3D v0.2.4 — Windows smart materials preview
+          name: Peent3D v0.2.5 — Windows smart materials preview
           prerelease: true
           body: |
-            Peent3D v0.2.4: supports multiple editable smart masks per material layer (multiply/add/subtract/max/min/replace), per-mask Angle Threshold and individual mask scale/seed, and true world-space distance to real feature edges for UV-seam-safe edge wear; plus responsive scrubbing, cached GPU shaders, quarter-resolution interactive smart masks, transition-only grunge breakup with adjustable intensity/hardness/band position/width, topology-based convex/concave edge baker, adjustable world-space Edge Distance, dedicated dust/rust/leak/streak/scratch smart masks, neutral dark-grey/orange UI, scrollable inspector, and directly editable numeric values with reset buttons.
+            Peent3D v0.2.5: supports multiple editable smart masks per material layer (multiply/add/subtract/max/min/replace), per-mask Angle Threshold and individual mask scale/seed, and true world-space distance to real feature edges for UV-seam-safe edge wear; plus responsive scrubbing, cached GPU shaders, quarter-resolution interactive smart masks, transition-only grunge breakup with adjustable intensity/hardness/band position/width, topology-based convex/concave edge baker, adjustable world-space Edge Distance, dedicated dust/rust/leak/streak/scratch smart masks, neutral dark-grey/orange UI, scrollable inspector, and directly editable numeric values with reset buttons.
             Windows WebGL2 GPU smoke test runs before publishing.
             **Download either the Setup installer or the portable executable under Assets below.**
             Requires Windows 10/11 and a WebGL2-capable GPU.
             Windows SmartScreen may warn because this preview is not code-signed.
           files: |
-            release/Peent3D Setup 0.2.4.exe
-            release/Peent3D 0.2.4.exe
+            release/Peent3D Setup 0.2.5.exe
+            release/Peent3D 0.2.5.exe
           fail_on_unmatched_files: true
