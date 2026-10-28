@@ -155,14 +155,14 @@ void main(){
  else if(uMask==6)result=1.-smoothstep(.15,.75,texture(uThickness,vUv).r);
  else if(uMask==7)result=broad;
  else if(uMask==8)result=vertical;
- else if(uMask==9)result=vertical*mix(.38,1.,clamp(cavity*.85+concave*.95,0.,1.));
+ else if(uMask==9)result=vertical*mix(.65,1.,clamp(cavity*.85+concave*.95,0.,1.));
  else if(uMask==10){
    float pockets=clamp(cavity*.86+concave*.94+(1.-height)*.13,0.,1.);
    float pinholes=noise3(p*max(.05,uScale)*11.0+uSeed+4.1,n);
    float oxideField=broad*.45+fine*.35+pinholes*.20;
-   float corrosion=smoothstep(.55,.74,oxideField+pockets*.10);
+   float corrosion=smoothstep(.51,.70,oxideField+pockets*.12);
    // Mostly local corrosion; exposed flat surfaces retain scattered fine pitting.
-   result=clamp(corrosion*mix(.10,.30,uCavity)+pockets*(.52+.26*corrosion)+vertical*.18,0.,1.);
+   result=clamp(corrosion*mix(.17,.43,uCavity)+pockets*(.52+.28*corrosion)+vertical*.22,0.,1.);
  }else if(uMask==11){
    float up=pow(clamp(n.y,0.,1.),mix(5.,.45,uTopBias));
    float trapped=clamp(cavity*.60+concave*.28,0.,1.);
