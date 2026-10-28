@@ -401,8 +401,10 @@ export class PeentGPU {
       this._draw(this.maskBlendMaterial,dst);
       previous=dst.texture;
     }
-    if(enabled.some(effect=>effect.mask!==0))this._stitchSmartMask(out,width);
+    // Bilinear sampling during the seam pass reconstructs both island sides
+    // smoothly, without a nearest-neighbor step at the physical border.
     out.texture.magFilter=THREE.LinearFilter;out.texture.minFilter=THREE.LinearFilter;
+    if(enabled.some(effect=>effect.mask!==0))this._stitchSmartMask(out,width);
     this.dirtySmart.delete(layer.id);
     return out;
   }
