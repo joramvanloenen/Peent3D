@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {buildBVH} from './geometry.js';
 import {buildEdgeNeighborhood} from './edge.js';
+import {buildRunoffAtlas} from './runoff.js';
 import maskBlendFrag from './shaders/mask-blend.frag.glsl?raw';
 import uvVert from './shaders/uv.vert.glsl?raw';
 import uvFrag from './shaders/uv.frag.glsl?raw';
@@ -15,7 +16,7 @@ import copyFrag from './shaders/copy.frag.glsl?raw';
 import padFrag from './shaders/pad.frag.glsl?raw';
 
 const CHANNELS=['baseColor','roughness','metalness','height'];
-const MESH_MAPS=['position','worldNormal','curvature','id','elevation','normal','opacity','signedMeanCurvature','edges'];
+const MESH_MAPS=['position','worldNormal','curvature','id','elevation','normal','opacity','signedMeanCurvature','triangleIndex','edges'];
 export const MAP_NAMES=['baseColor','roughness','metalness','normal','height','position','worldNormal','curvature','signedMeanCurvature','id','elevation','opacity','ao','bentNormal','thickness'];
 
 function target(size,type=THREE.HalfFloatType){
@@ -108,8 +109,9 @@ export class PeentGPU {
     if(this.mesh){this.scene.remove(this.mesh);this.mesh.geometry.dispose();}
     if(this.uvMesh)this.uvScene.remove(this.uvMesh);
     this.bvh?.dispose();
-    this.features?.dispose();
+    this.features?.dispose();this.runoff?.dispose();
     this.features=buildEdgeNeighborhood(result.geometry);
+    this.runoff=buildRunoffAtlas(result.geometry);
     const geometry=result.geometry;
     if(!geometry.getAttribute('aTriangleId')){
       const data=new Float32Array(geometry.getAttribute('position').count);
@@ -171,7 +173,7 @@ export class PeentGPU {
     if(this.edgeMaps.has(key))return this.edgeMaps.get(key);
     const rt=target(resolution);
     const mat=this.uvBakeMaterial;
-    mat.uniforms.uMode.value=8;
+    mat.uniforms.uMode.value=9;
     mat.uniforms.uAngleThreshold.value=threshold;
     this._draw(mat,rt,this.uvScene);
     rt.texture.magFilter=THREE.NearestFilter;
@@ -280,7 +282,7 @@ export class PeentGPU {
     if(!rt){rt=target(width);this.effectMasks.set(key,rt);this.dirtyEffects.add(key);}
     if(!this.dirtyEffects.has(key))return rt.texture;
     if(!this.smartMaterial){
-      const names=['uPosition','uNormal','uEdges','uAO','uThickness','uCurvature','uSignedMeanCurvature',
+      const names=['uPosition','uNormal','uEdges','uAO','uThickness','uCurvature','uSignedMeanCurvature','uTriangleIndex','uRunoffSegments','uRunoffWidth','uRunoffStride',
         'uMask','uInvert','uSeed','uScale','uContrast','uBreakup',
         'uBreakupHardness','uBreakupPosition','uBreakupWidth','uEdgeDistance',
         'uAngleThreshold','uSoftness','uDensity','uLength','uWidth',
@@ -296,6 +298,8 @@ export class PeentGPU {
       uEdges:e.texture,uAO:this.maps.ao.texture,
       uThickness:this.maps.thickness.texture,uCurvature:this.maps.curvature.texture,
       uSignedMeanCurvature:this.maps.signedMeanCurvature.texture,
+      uTriangleIndex:this.maps.triangleIndex.texture,
+      uRunoffSegments:this.runoff.texture,uRunoffWidth:this.runoff.width,uRunoffStride:this.runoff.stride,
       uMask:effect.mask,uInvert:effect.maskInvert?1:0,uSeed:effect.seed??layer.seed??0,
       uScale:effect.scale??3,uContrast:effect.contrast??1,uBreakup:effect.breakup??0,
       uBreakupHardness:effect.breakupHardness??.55,
@@ -660,7 +664,7 @@ export class PeentGPU {
   dispose(){
     this._running=false;this._resizer.disconnect();
     disposeTargets(this.maps);disposeTargets(this.composites);disposeTargets(this.padded);
-    this.features?.dispose();this.uvBakeMaterial?.dispose();
+    this.features?.dispose();this.runoff?.dispose();this.uvBakeMaterial?.dispose();
     for(const rt of this.edgeMaps.values())if(rt!==this.maps.edges)rt.dispose();this.edgeMaps.clear();
     for(const rt of this.effectMasks.values())rt.dispose();this.effectMasks.clear();
     this.maskScratch?.dispose();this.maskBlendMaterial?.dispose();

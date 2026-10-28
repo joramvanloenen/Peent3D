@@ -31,6 +31,12 @@ void main(){
  else if(uMode==5) frag=vec4(.5,.5,1.,1.);
  else if(uMode==6) frag=vec4(1.);
  else if(uMode==7) frag=vec4(vSignedMeanCurvature,1.);
+ else if(uMode==8){
+   // Half float render targets can exactly represent each 0..255 chunk.
+   // This preserves triangle IDs beyond float16's integer precision limit.
+   int i=vTriangleId;
+   frag=vec4(float(i%256),float((i/256)%256),float(i/65536),1.);
+ }
  else {
    // Exact Euclidean distance in 3D to actual *finite feature segments*.
    // Unlike per-triangle barycentrics, this is continuous across UV seams,

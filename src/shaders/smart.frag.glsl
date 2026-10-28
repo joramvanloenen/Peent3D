@@ -7,6 +7,10 @@ uniform sampler2D uAO;
 uniform sampler2D uThickness;
 uniform sampler2D uCurvature;
 uniform sampler2D uSignedMeanCurvature;
+uniform sampler2D uTriangleIndex;
+uniform sampler2D uRunoffSegments;
+uniform int uRunoffWidth;
+uniform int uRunoffStride;
 uniform int uMask;
 uniform int uInvert;
 uniform float uSeed;
@@ -98,54 +102,55 @@ float scratches3(vec3 p,vec3 n){
         w.y*scratchPlane(p.xz,uSeed+7.1)+
         w.z*scratchPlane(p.xy,uSeed+13.1);
 }
-float dripPlane(vec2 p,float seed){
- // Each stain is a coherent, downward projected path. Streaks start at the
- // exposed top of the object, while leaks can begin below local ledges.
- float freq=max(.2,uScale)*7.;
- float x=p.x*freq;
- float y=(p.y+(1.-uGravity)*p.x*.4)*freq;
- float footprint=max(fwidth(x)*.48,.004);
- float period=max(2.,uLength*7.);
- float row=floor((y-uMin.y*freq)/period);
- float col=floor(x);
- float result=0.;
- for(int k=-1;k<=1;k++){
-   float column=col+float(k);
-   float random=hash21(vec2(column,seed));
+// World-space, mesh-constrained runoff. Each segment is an actual trajectory
+// integrated across triangle adjacency from a source on an upper feature edge.
+// Unlike tiled 2D drips, there are NO independent spawn rows on the wall.
+// Surface velocity follows projected gravity plus weak capillary drift.
+float runoffField(vec3 p,vec3 n){
+ vec3 encoded=texture(uTriangleIndex,vUv).rgb;
+ int tri=int(encoded.r+.5)+256*int(encoded.g+.5)+65536*int(encoded.b+.5);
+ int offset=tri*uRunoffStride;
+ int count=int(texelFetch(uRunoffSegments,ivec2(offset%uRunoffWidth,offset/uRunoffWidth),0).r+.5);
+ float best=0.;
+ float vertical=smoothstep(.05,.36,length(vec3(0.,-1.,0.)-n*dot(vec3(0.,-1.,0.),n)));
+ float footprint=max(max(length(dFdx(p)),length(dFdy(p)))*.42,.001);
+ for(int j=0;j<16;j++){
+   if(j>=count)break;
+   int aIndex=offset+1+j*3;
+   vec4 a=texelFetch(uRunoffSegments,ivec2(aIndex%uRunoffWidth,aIndex/uRunoffWidth),0);
+   int bIndex=aIndex+1;
+   vec4 b=texelFetch(uRunoffSegments,ivec2(bIndex%uRunoffWidth,bIndex/uRunoffWidth),0);
+   int infoIndex=aIndex+2;
+   vec4 info=texelFetch(uRunoffSegments,ivec2(infoIndex%uRunoffWidth,infoIndex/uRunoffWidth),0);
+   // Only real eligible upper edges can seed a stain.
+   if(info.z+1e-3<uAngleThreshold)continue;
+   float random=hash21(vec2(b.w,uSeed));
    if(random>uDensity)continue;
-   float xc=column+.15+.70*hash21(vec2(column+9.3,seed));
-   float variation=hash21(vec2(column,seed+17.));
-   float wobble=(noise2(vec2(y*.22,column*.87+seed))-.5)*.14;
-   float dist=abs(x-xc-wobble);
-   float startY=uMask==8
-      ? (uMin.y+uSize.y)*freq - freq*.05*hash21(vec2(column,seed+22.))
-      : (row+1.)*period+uMin.y*freq-period*.13*hash21(vec2(column,seed+22.));
-   float len=uMask==8
-      ? uSize.y*freq*clamp(uLength/2.5,.08,1.)*mix(.28,1.,variation)
-      : period*mix(.28,.94,variation);
-   float drop=startY-y;
-   if(drop<0.||drop>len)continue;
-   float taper=mix(1.,.44,clamp(drop/max(.001,len),0.,1.));
-   float width=max(.006,uWidth)*mix(.55,1.30,hash21(vec2(column,seed+31.)));
-   float radius=width*taper;
-   float core=1.-smoothstep(max(0.,radius-footprint),radius+footprint,dist);
-   float halo=1.-smoothstep(radius+footprint,radius*2.7+footprint,dist);
-   float antialiasCoverage=clamp(radius/max(.001,footprint),.18,1.);
-   float endFade=1.-smoothstep(len*.70,len,drop);
-   float startFade=smoothstep(0.,max(.08,footprint),drop);
-   float stain=(core*.72+halo*.15)*antialiasCoverage*endFade*startFade;
-   result=max(result,stain);
+   vec3 v=b.xyz-a.xyz;
+   float segmentLength=max(.00001,length(v));
+   float along=clamp(dot(p-a.xyz,v)/max(dot(v,v),1e-9),0.,1.);
+   float travel=a.w+along*segmentLength;
+   float maxRun=min(info.y,max(.045,uLength*.8)*mix(.36,1.28,random));
+   if(travel>maxRun)continue;
+   float capillary=(noise2(vec2(travel*max(.5,uScale)*9.,b.w*.47+uSeed))-.5)
+                    *(.008*(1.-clamp(uGravity,0.,1.))+.002);
+   vec3 unit=v/segmentLength;
+   vec3 transverse=normalize(cross(n,unit)+vec3(.00001));
+   float lateral=dot(p-(a.xyz+v*along),transverse)-capillary;
+   float separation=length(p-(a.xyz+v*along));
+   // Stabilize the bead/meniscus at the physical ledge, taper with travel.
+   float radius=max(.0025,uWidth*.11)*mix(.7,1.36,info.x)
+     *mix(1.28,.62,clamp(travel/max(maxRun,.001),0.,1.));
+   float core=1.-smoothstep(max(0.,radius-footprint),radius+footprint,abs(lateral));
+   float halo=1.-smoothstep(radius+footprint,radius*3.2+footprint,abs(lateral));
+   float within=1.-smoothstep(radius*1.5+footprint,radius*2.7+footprint,separation);
+   float bead=1.-smoothstep(0.,radius*4.+footprint,travel);
+   float endFade=1.-smoothstep(maxRun*.74,maxRun,travel);
+   float narrow=(core*.78+halo*.19)*within;
+   float stain=(narrow+bead*.14)*endFade*vertical;
+   best=max(best,stain);
  }
- return clamp(result,0.,1.);
-}
-float verticalRunoff(vec3 p,vec3 n){
- // Project onto vertical X/Y or Z/Y planes, suppress horizontal surfaces.
- float wx=pow(abs(n.x),4.),wz=pow(abs(n.z),4.);
- float total=wx+wz;
- if(total<.00001)return 0.;
- wx/=total;wz/=total;
- return (wx*dripPlane(p.zy,uSeed+5.)+wz*dripPlane(p.xy,uSeed+11.))*
-        smoothstep(.12,.60,1.-abs(n.y));
+ return clamp(best,0.,1.);
 }
 // Breakup position is the centre of a coverage-domain band: 0=outside,
 // 1=the physical worn-edge core. The band is deliberately NOT clamped
@@ -175,7 +180,7 @@ void main(){
  float result=1.;
  float fine=0.,broad=0.,convex=0.,concave=0.,vertical=0.,cavity=0.,height=0.;
  // Compute only the features actually requested by this generator.
- bool requiresEdges=(uMask==1||uMask==2||uMask==9||uMask==10||uMask==11);
+ bool requiresEdges=(uMask==1||uMask==2||uMask==10||uMask==11);
  bool requiresAO=(uMask==1||uMask==3||uMask==9||uMask==10||uMask==11);
  bool requiresHeight=(uMask==4||uMask==5||uMask==10);
  bool requiresNoise=(uMask==7||uMask==10||uMask==11||uBreakup>0.);
@@ -190,7 +195,7 @@ void main(){
    fine=noise3(p*max(.05,uScale)*max(.2,uBreakupScale)*6.+uSeed,n);
    if(uMask==7||uMask==10||uMask==11)broad=noise3(p*max(.05,uScale)*1.2+uSeed,n);
  }
- if(uMask==8||uMask==9||uMask==10)vertical=verticalRunoff(p,n);
+ if(uMask==8||uMask==9||uMask==10)vertical=runoffField(p,n);
  if(uMask==1){
    float ao=1.-cavity;
    result=convex*mix(1.,ao,uAOProtect);
@@ -201,7 +206,7 @@ void main(){
  else if(uMask==6)result=1.-smoothstep(.15,.75,texture(uThickness,vUv).r);
  else if(uMask==7)result=broad;
  else if(uMask==8)result=vertical;
- else if(uMask==9)result=vertical*mix(.65,1.,clamp(cavity*.85+concave*.95,0.,1.));
+ else if(uMask==9)result=vertical*mix(.56,1.,clamp(cavity*.95,0.,1.));
  else if(uMask==10){
    float pockets=clamp(cavity*.86+concave*.94+(1.-height)*.13,0.,1.);
    float pinholes=noise3(p*max(.05,uScale)*11.0+uSeed+4.1,n);
@@ -243,7 +248,7 @@ void main(){
  // For edge-aware masks this parameter is a minimum real dihedral angle,
  // already applied when generating the 3D feature-distance atlas. For other
  // masks it limits surface tilt from object-space Y up (180° = unrestricted).
- if(uMask!=1&&uMask!=2&&uMask!=9&&uMask!=10&&uMask!=11&&uAngleThreshold<179.5){
+ if(uMask!=1&&uMask!=2&&uMask!=8&&uMask!=9&&uMask!=10&&uMask!=11&&uAngleThreshold<179.5){
    float tilt=degrees(acos(clamp(n.y,-1.,1.)));
    float cutoff=1.-smoothstep(max(0.,uAngleThreshold-3.),uAngleThreshold+3.,tilt);
    result*=cutoff;
