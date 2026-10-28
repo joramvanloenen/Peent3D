@@ -72,6 +72,9 @@ export class PeentGPU {
     this.maps={};this.composites=[];this.padded={};this.paintMasks=new Map();this.smartMasks=new Map();this.imageTextures=new Map();
     this.whiteTexture=new THREE.DataTexture(new Uint8Array([255,255,255,255]),1,1,THREE.RGBAFormat);this.whiteTexture.needsUpdate=true;
     this.dirtyFrom=0;
+    this.dirtyChannels=new Set(CHANNELS);
+    this.dirtySmart=new Set();
+    this.interactive=false;
     this.view='3d';this.channel='material';this.layers=[];
     this.gpuName=this.renderer.getContext().getParameter(this.renderer.getContext().RENDERER)||'WebGL2';
     this._resizer=new ResizeObserver(()=>this.resize());
@@ -119,7 +122,8 @@ export class PeentGPU {
     this.uvMesh.frustumCulled=false;
     this.uvScene.add(this.uvMesh);
     this.bvh=buildBVH(result.geometry);
-    this.dirtyFrom=0;
+    this.dirtyFrom=0;this.dirtyChannels=new Set(CHANNELS);
+    this.dirtySmart.clear();
     this.frame();
   }
   frame(){
@@ -188,7 +192,8 @@ export class PeentGPU {
     await new Promise(requestAnimationFrame);
     this._bakeRays();
     onProgress('Building material layers');
-    this.dirtyFrom=0;
+    this.dirtyFrom=0;this.dirtyChannels=new Set(CHANNELS);
+    this.dirtySmart.clear();
     this._resetMasksForResolution();
     this.compose();
   }
@@ -209,6 +214,8 @@ export class PeentGPU {
     for(const rt of this.smartMasks.values())rt.dispose();this.smartMasks.clear();
     disposeTargets(this.composites);
     this.composites=[];
+    this.dirtyChannels=new Set(CHANNELS);
+    this.dirtySmart.clear();
   }
   fillMask(layer,value=1){
     const rt=this._mask(layer);
@@ -222,46 +229,52 @@ export class PeentGPU {
   }
   _renderSmartMask(layer,bounds){
     let rt=this.smartMasks.get(layer.id);
-    if(rt && rt.width!==this.size){rt.dispose();rt=null;}
-    if(!rt){rt=target(this.size);this.smartMasks.set(layer.id,rt);}
+    if(rt && rt.width!==this.size){rt.dispose();this.smartMasks.delete(layer.id);rt=null;}
+    if(!rt){rt=target(this.size);this.smartMasks.set(layer.id,rt);this.dirtySmart.add(layer.id);}
+    if(!this.dirtySmart.has(layer.id))return rt;
+    if(!this.smartMaterial){
+      const names=['uPosition','uNormal','uEdges','uAO','uThickness','uCurvature',
+        'uMask','uInvert','uSeed','uScale','uContrast','uBreakup',
+        'uBreakupHardness','uBreakupPosition','uBreakupWidth',
+        'uEdgeDistance','uAngleThreshold','uSoftness','uDensity','uLength',
+        'uWidth','uDirection','uGravity','uCavity','uAOProtect','uTopBias',
+        'uBreakupScale','uMin','uSize'];
+      const uniforms=Object.fromEntries(names.map(name=>[name,U(null)]));
+      this.smartMaterial=shader(quadVert,smartFrag,uniforms);
+    }
+    const u=this.smartMaterial.uniforms;
     const params=layer;
-    const mat=shader(quadVert,smartFrag,{
-      uPosition:U(this.maps.position.texture),
-      uNormal:U(this.maps.worldNormal.texture),
-      uEdges:U(this.maps.edges.texture),
-      uAO:U(this.maps.ao.texture),
-      uThickness:U(this.maps.thickness.texture),
-      uCurvature:U(this.maps.curvature.texture),
-      uMask:U(params.mask||0),
-      uInvert:U(params.maskInvert?1:0),
-      uSeed:U(params.seed||0),
-      uScale:U(params.scale??3),
-      uContrast:U(params.contrast??1),
-      uBreakup:U(params.breakup??.12),
-      uEdgeDistance:U(params.edgeDistance??.035),
-      uAngleThreshold:U(params.angleThreshold??20),
-      uSoftness:U(params.softness??.35),
-      uDensity:U(params.density??.36),
-      uLength:U(params.length??.8),
-      uWidth:U(params.width??.035),
-      uDirection:U(params.direction??35),
-      uGravity:U(params.gravity??1),
-      uCavity:U(params.cavity??.65),
-      uAOProtect:U(params.aoProtect??.35),
-      uTopBias:U(params.topBias??.75),
-      uBreakupScale:U(params.breakupScale??1),
-      uMin:U(bounds.min.clone()),
-      uSize:U(bounds.getSize(new THREE.Vector3()))
-    });
-    this._draw(mat,rt);
-    mat.dispose();
+    const values={
+      uPosition:this.maps.position.texture,uNormal:this.maps.worldNormal.texture,
+      uEdges:this.maps.edges.texture,uAO:this.maps.ao.texture,
+      uThickness:this.maps.thickness.texture,uCurvature:this.maps.curvature.texture,
+      uMask:params.mask||0,uInvert:params.maskInvert?1:0,uSeed:params.seed||0,
+      uScale:params.scale??3,uContrast:params.contrast??1,uBreakup:params.breakup??.12,
+      uBreakupHardness:params.breakupHardness??.55,
+      uBreakupPosition:params.breakupPosition??.53,
+      uBreakupWidth:params.breakupWidth??.60,
+      uEdgeDistance:params.edgeDistance??.035,uAngleThreshold:params.angleThreshold??20,
+      uSoftness:params.softness??.35,uDensity:params.density??.36,
+      uLength:params.length??.8,uWidth:params.width??.035,
+      uDirection:params.direction??35,uGravity:params.gravity??1,
+      uCavity:params.cavity??.65,uAOProtect:params.aoProtect??.35,
+      uTopBias:params.topBias??.75,uBreakupScale:params.breakupScale??1,
+      uMin:bounds.min,uSize:bounds.getSize(this._boundsSize||(this._boundsSize=new THREE.Vector3()))
+    };
+    for(const [name,value] of Object.entries(values))u[name].value=value;
+    this._draw(this.smartMaterial,rt);
+    this.dirtySmart.delete(layer.id);
     return rt;
   }
-  markDirty(index=0){
-    this.dirtyFrom=Math.min(this.dirtyFrom,index);
+  markDirty(index=0,{smart=true,channel=null}={}){
+    this.dirtyFrom=Math.min(this.dirtyFrom,Math.max(0,index));
+    if(channel && CHANNELS.includes(channel))this.dirtyChannels.add(channel);
+    else CHANNELS.forEach(name=>this.dirtyChannels.add(name));
+    if(smart && this.layers[index])this.dirtySmart.add(this.layers[index].id);
   }
-  compose(layers=this.layers){
+  compose(layers=this.layers,interactive=false){
     this.layers=layers;
+    this.interactive=interactive;
     if(!this.maps.position)return;
     let start=Math.min(this.dirtyFrom,this.composites.length);
     const geometryBounds=this.model.geometry.boundingBox;
@@ -273,8 +286,12 @@ export class PeentGPU {
       uColor:U(new THREE.Color()),uRoughness:U(.6),uMetallic:U(0),
       uHeight:U(0),uOpacity:U(1),uScale:U(1),uSeed:U(0),uStrength:U(.3)
     };
-    const mat=shader(quadVert,layerFrag,uniforms);
-    // Compose only dirty layers; previous layer outputs remain cached.
+    if(!this.layerMaterial)this.layerMaterial=shader(quadVert,layerFrag,uniforms);
+    const mat=this.layerMaterial;
+    // Reuse the compiled shader program and uniform objects while scrubbing.
+    for(const [name,entry] of Object.entries(uniforms))mat.uniforms[name].value=entry.value;
+    const channelSet=this.dirtyChannels;
+    // Compose only dirty layers AND material channels; previous outputs remain cached.
     for(let i=start;i<layers.length;i++){
       const layer=layers[i];
       if(!this.composites[i])this.composites[i]={};
@@ -284,6 +301,7 @@ export class PeentGPU {
       uniforms.uSmartMask.value=smart.texture;
       for(let channel=0;channel<CHANNELS.length;channel++){
         const name=CHANNELS[channel];
+        if(!channelSet.has(name) && this.composites[i][name])continue;
         if(!this.composites[i][name])this.composites[i][name]=target(this.size);
         const previous=i>0?this.composites[i-1][name]?.texture:null;
         if(!layer.visible && previous){
@@ -311,13 +329,19 @@ export class PeentGPU {
         this._draw(mat,this.composites[i][name]);
       }
     }
-    mat.dispose();
     for(let i=layers.length;i<this.composites.length;i++)disposeTargets(this.composites[i]);
     this.composites.length=layers.length;
     const active=new Set(layers.map(l=>l.id));
     for(const [id,rt] of this.smartMasks)if(!active.has(id)){rt.dispose();this.smartMasks.delete(id);}
     for(const [id,rt] of this.paintMasks)if(!active.has(id)){rt.dispose();this.paintMasks.delete(id);}
     this.dirtyFrom=layers.length;
+    this.dirtyChannels.clear();
+    if(interactive){
+      // Only the changed material channels are recomposited while a slider is dragged.
+      // Defer 20 expensive dilation passes and height-to-normal until interaction stops.
+      this._updateMaterial();
+      return;
+    }
     this._padFinal('height',this.composites.at(-1)?.height);
     this._bakeNormalFromHeight();
     for(const name of ['baseColor','roughness','metalness'])this._padFinal(name,this.composites.at(-1)?.[name]);
@@ -355,23 +379,28 @@ export class PeentGPU {
   }
   _updateMaterial(){
     const last=this.composites.at(-1);
-    this.previewMaterial.map=this.padded.baseColor?.texture||last?.baseColor?.texture||null;
-    this.previewMaterial.roughnessMap=this.padded.roughness?.texture||last?.roughness?.texture||null;
-    this.previewMaterial.metalnessMap=this.padded.metalness?.texture||last?.metalness?.texture||null;
+    const oldFlags=[!!this.previewMaterial.map,!!this.previewMaterial.roughnessMap,
+      !!this.previewMaterial.metalnessMap,!!this.previewMaterial.normalMap];
+    this.previewMaterial.map=(this.interactive?null:this.padded.baseColor?.texture)||last?.baseColor?.texture||null;
+    this.previewMaterial.roughnessMap=(this.interactive?null:this.padded.roughness?.texture)||last?.roughness?.texture||null;
+    this.previewMaterial.metalnessMap=(this.interactive?null:this.padded.metalness?.texture)||last?.metalness?.texture||null;
     this.previewMaterial.normalMap=this.padded.normal?.texture||this.normalResult?.texture||null;
     this.previewMaterial.color.set(0xffffff);
     this.previewMaterial.roughness=1;
     this.previewMaterial.metalness=1;
-    this.previewMaterial.needsUpdate=true;
-    this.viewQuad.material.needsUpdate=true;
+    const newFlags=[!!this.previewMaterial.map,!!this.previewMaterial.roughnessMap,
+      !!this.previewMaterial.metalnessMap,!!this.previewMaterial.normalMap];
+    if(oldFlags.some((flag,i)=>flag!==newFlags[i]))this.previewMaterial.needsUpdate=true;
   }
   getPreviewTexture(){
     const last=this.composites.at(-1);
     const outputs={
-      material:this.padded.baseColor?.texture||last?.baseColor?.texture,
-      baseColor:this.padded.baseColor?.texture||last?.baseColor?.texture,
-      roughness:this.padded.roughness?.texture||last?.roughness?.texture,metalness:this.padded.metalness?.texture||last?.metalness?.texture,
-      height:this.padded.height?.texture||last?.height?.texture,normal:this.padded.normal?.texture||this.normalResult?.texture,
+      material:(this.interactive?null:this.padded.baseColor?.texture)||last?.baseColor?.texture,
+      baseColor:(this.interactive?null:this.padded.baseColor?.texture)||last?.baseColor?.texture,
+      roughness:(this.interactive?null:this.padded.roughness?.texture)||last?.roughness?.texture,
+      metalness:(this.interactive?null:this.padded.metalness?.texture)||last?.metalness?.texture,
+      height:(this.interactive?null:this.padded.height?.texture)||last?.height?.texture,
+      normal:this.padded.normal?.texture||this.normalResult?.texture,
       ao:this.maps.ao?.texture,curvature:this.maps.curvature?.texture,
       thickness:this.maps.thickness?.texture,position:this.maps.position?.texture,
       id:this.maps.id?.texture,worldNormal:this.maps.worldNormal?.texture,
@@ -385,7 +414,6 @@ export class PeentGPU {
     this.view=view;
     this.channel=channel;
     this.controls.enabled=view==='3d';
-    this._updateMaterial();
     if(view==='3d' && this.mesh){
       if(channel==='material')this.mesh.material=this.previewMaterial;
       else{
@@ -506,6 +534,7 @@ export class PeentGPU {
   dispose(){
     this._running=false;this._resizer.disconnect();
     disposeTargets(this.maps);disposeTargets(this.composites);disposeTargets(this.padded);
+    this.smartMaterial?.dispose();this.layerMaterial?.dispose();
     for(const rt of this.smartMasks.values())rt.dispose();this.smartMasks.clear();
     this.padScratch?.dispose();
     this.clearLayerImages();this.whiteTexture.dispose();
