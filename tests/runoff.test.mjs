@@ -39,7 +39,9 @@ test('a cube emits runoff ONLY from top geometry ledges and traces down its wall
  atlas.dispose();
 });
 test('horizontal surfaces never generate vertical drips in the middle of the face',()=>{
- const scene=prepareScene(new THREE.Mesh(new THREE.PlaneGeometry(2,2,6,6)),'Horizontal floor');
+ const flat=new THREE.PlaneGeometry(2,2,6,6);
+ flat.rotateX(-Math.PI/2); // default PlaneGeometry is an upright XY plane
+ const scene=prepareScene(new THREE.Mesh(flat),'Horizontal floor');
  const atlas=from(scene.geometry);
  assert.equal(atlas.stats.sources,0);
  assert.equal(atlas.stats.particles,0);
@@ -47,11 +49,7 @@ test('horizontal surfaces never generate vertical drips in the middle of the fac
  atlas.dispose();
 });
 test('a triangulated vertical wall has source emitters on its TOP open boundary only',()=>{
- const g=new THREE.PlaneGeometry(2,2,6,6);
- g.rotateX(-Math.PI/2);
- // Rotate to the vertical X/Y plane, with top y=1.
- g.rotateX(Math.PI/2);
- // Base PlaneGeometry faces X/Y already; no rotation required after cancellation.
+ const g=new THREE.PlaneGeometry(2,2,6,6); // default XY plane is upright
  const scene=prepareScene(new THREE.Mesh(g),'Wall');
  const atlas=from(scene.geometry);
  assert.ok(atlas.stats.sources>0);
