@@ -74,7 +74,7 @@ let selected=layers.at(-1)?.id;
 let tool='orbit',uvTab=false,painting=false,lastPaintPoint=null;
 let brushRadius=.17,brushHardness=.55,brushStrength=.72;
 const BRUSH_DEFAULTS={brushRadius:.17,brushHardness:.55,brushStrength:.72};
-let scheduled=false,busy=false,settleTimer=null;
+let scheduled=false,busy=false,settleTimer=null,sliderDragging=0;
 const PREVIEW_SETTLE_MS=210;
 const channelForField={color:'baseColor',roughness:'roughness',metallic:'metalness',height:'height'};
 const materialFields=new Set(['color','roughness','metallic','height','opacity','visible','name','projection','variation']);
@@ -116,14 +116,17 @@ function mark(index=0,field=null){
    refreshPreview();
   });
  }
- // Pay the full-quality normalization/padding cost ONCE after scrubbing ends.
+ // Pay the expensive full-quality passes only after scrubbing ends.
+ scheduleFinalize();
+}
+function scheduleFinalize(delay=PREVIEW_SETTLE_MS){
  clearTimeout(settleTimer);
+ if(sliderDragging>0)return;
  settleTimer=setTimeout(()=>{
   if(busy)return;
-  // Leave the GPU result untouched if values did not change, and only regenerate padding.
   gpu.compose(layers,false);
   refreshPreview();
- },PREVIEW_SETTLE_MS);
+ },delay);
 }
 function refreshPreview(){
  gpu.selectedLayerId=selected;
@@ -170,6 +173,16 @@ function numericControl({name,value,min,max,step,defaultValue,onChange}){
    onChange(display);
  }
  slider.value=String(value);number.value=String(value);
+ slider.addEventListener('pointerdown',()=>{
+   sliderDragging++;
+   clearTimeout(settleTimer);
+ });
+ const finishDrag=()=>{
+   if(sliderDragging>0)sliderDragging--;
+   scheduleFinalize(90);
+ };
+ slider.addEventListener('pointerup',finishDrag);
+ slider.addEventListener('pointercancel',finishDrag);
  slider.addEventListener('input',()=>set(slider.value));
  number.addEventListener('change',()=>set(number.value));
  number.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();number.blur();}});
