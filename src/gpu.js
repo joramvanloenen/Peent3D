@@ -293,6 +293,11 @@ export class PeentGPU {
     live.uPosition.value=this.maps.position.texture;
     live.uNormal.value=this.maps.worldNormal.texture;
     const channelSet=this.dirtyChannels;
+    // During scrubbing, refresh only one visible channel; defer the rest.
+    // At 2K this avoids three-quarters of the expensive full-screen blends.
+    const priority=this.channel!=='material'&&channelSet.has(this.channel)
+      ?this.channel:(channelSet.has('baseColor')?'baseColor':channelSet.values().next().value);
+    const activeChannels=interactive&&channelSet.size>1?new Set(priority?[priority]:[]):channelSet;
     // Compose only dirty layers AND material channels; previous outputs remain cached.
     for(let i=start;i<layers.length;i++){
       const layer=layers[i];
@@ -303,7 +308,7 @@ export class PeentGPU {
       live.uSmartMask.value=smart.texture;
       for(let channel=0;channel<CHANNELS.length;channel++){
         const name=CHANNELS[channel];
-        if(!channelSet.has(name) && this.composites[i][name])continue;
+        if(!activeChannels.has(name) && this.composites[i][name])continue;
         if(!this.composites[i][name])this.composites[i][name]=target(this.size);
         const previous=i>0?this.composites[i-1][name]?.texture:null;
         if(!layer.visible && previous){
@@ -336,14 +341,16 @@ export class PeentGPU {
     const active=new Set(layers.map(l=>l.id));
     for(const [id,rt] of this.smartMasks)if(!active.has(id)){rt.dispose();this.smartMasks.delete(id);}
     for(const [id,rt] of this.paintMasks)if(!active.has(id)){rt.dispose();this.paintMasks.delete(id);}
-    this.dirtyFrom=layers.length;
-    this.dirtyChannels.clear();
     if(interactive){
+      for(const name of activeChannels)this.dirtyChannels.delete(name);
+      this.dirtyFrom=this.dirtyChannels.size?start:layers.length;
       // Only the changed material channels are recomposited while a slider is dragged.
       // Defer 20 expensive dilation passes and height-to-normal until interaction stops.
       this._updateMaterial();
       return;
     }
+    this.dirtyFrom=layers.length;
+    this.dirtyChannels.clear();
     this._padFinal('height',this.composites.at(-1)?.height);
     this._bakeNormalFromHeight();
     for(const name of ['baseColor','roughness','metalness'])this._padFinal(name,this.composites.at(-1)?.[name]);
@@ -420,8 +427,9 @@ export class PeentGPU {
       if(channel==='material')this.mesh.material=this.previewMaterial;
       else{
         if(!this.channelMaterial)this.channelMaterial=new THREE.MeshBasicMaterial({side:THREE.DoubleSide});
-        this.channelMaterial.map=this.getPreviewTexture();
-        this.channelMaterial.needsUpdate=true;
+        const next=this.getPreviewTexture();
+        if(Boolean(this.channelMaterial.map)!==Boolean(next))this.channelMaterial.needsUpdate=true;
+        this.channelMaterial.map=next;
         this.mesh.material=this.channelMaterial;
       }
     }
