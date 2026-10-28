@@ -1,6 +1,6 @@
 {
   "name": "peent3d",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "GPU-driven low-poly material painter and mesh map baker for Windows",
   "type": "module",
   "main": "electron/main.cjs",

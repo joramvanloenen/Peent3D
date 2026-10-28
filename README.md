@@ -2,7 +2,7 @@
 
 **Peent3D** is an early-stage, GPU-based texture authoring application for **Windows**, designed for **low-poly meshes**. It runs as an Electron desktop application with a WebGL2 GPU backend, Three.js PBR preview, reusable UV-space mesh data, and a layer-based material editor.
 
-> **Status: v0.2.3 experimental preview, validated with Windows WebGL2 GUI smoke tests.** This repository is a substantial initial implementation, **not** feature-parity with Adobe Substance 3D Painter. Test the baker on your own meshes before depending on exported data. No commercial licensing or compatibility with Adobe is implied.
+> **Status: v0.2.4 experimental preview, validated with Windows WebGL2 GUI smoke tests.** This repository is a substantial initial implementation, **not** feature-parity with Adobe Substance 3D Painter. Test the baker on your own meshes before depending on exported data. No commercial licensing or compatibility with Adobe is implied.
 
 ## What is implemented
 
@@ -13,6 +13,9 @@
 - GPU fragment-shader BVH ray tracing for ambient occlusion, approximate thickness and bent normals; ray samples and distance configurable.
 - Procedural PBR **fill layers** (base color, roughness, metallic, relief height) with visibility, opacity, reordering and per-channel GPU compositing.
 - UV and **triplanar projection** for image-based color Fill Layers and procedural noise using baked 3D position/normal data.
+- **Multiple smart masks per material layer**: add, remove, enable, select and reorder masks independently. Blend via Replace, Multiply, Add, Subtract, Max or Min, with individual opacity, generator scale, noise seed and mask controls. Existing single-mask `.peent` projects are migrated when opened.
+- **Angle Threshold on every mask**: edge-aware generators use minimum real mesh dihedral angle, while orientation-based generators use maximum angle from object-space up (180° means no filtering). A full-surface mask also supports angular restriction.
+- **UV-seam-safe edge distances**: feature edges are identified in welded *3D geometry* (not UV borders). A spatial index selects nearby true feature segments, and GPU baking evaluates exact finite-segment distance at each surface texel. Shared corners and UV-island splits no longer truncate the distance field. Nearby disconnected meshes are excluded, and angle-specific maps are cached.
 - **Topology-based hard-edge baker**: identifies signed convex and concave dihedral angles across shared mesh edges, unaffected by UV seams. Stores **physical edge distance** in normalized model-space units; independent of texture resolution.
 - **12 GPU procedural smart-mask generators**: convex edge wear, concave crevices, AO dirt, height gradients, thin parts, grunge, gravity streaks, leaks/drips, oxidation, deposited dust, and directional natural scratches.
 - **Edge wear controls**: Edge Distance, Angle Threshold, softness and AO protection plus new **Breakup intensity**, **Breakup hardness**, **Breakup position**, and **Breakup band width**. Edge grunge affects only the intermediate transition pixels; the solid 100% convex wear core remains unaltered. Breakup position and width specify which mask-strength interval can chip away.
@@ -71,7 +74,7 @@ The browser build can download ZIP/project files. The Electron build opens a nat
 1. Import a model with sensible non-overlapping UVs (OBJ or GLB), or start with the built-in torus knot.
 2. Choose a 256–2048 map resolution and AO sample count, then click **Bake mesh maps**.
 3. Choose a material preset using the **New layer preset** selector, then press **＋**. You can also select, reorder or edit existing layers. Drag any slider, type an exact number, or press **↺** to reset one value.
-4. Choose **Edge wear · convex** for worn hard edges and adjust **Edge Distance** to set wear width in model-space units; or use streaks, leaks, rust, dust, scratches. Use **Paint (B)** / **Erase (E)** for edits. **V** orbits; **F** frames.
+4. On one material layer use **＋ Mask** to stack multiple geometry-driven generators (edge wear + grunge + leaks, for example). Select a mask to adjust its unique Angle Threshold, scale, seed, opacity and blending. For edge wear, **Edge Distance** sets width in model-space units, unaffected by UV seams. Use **Paint (B)** / **Erase (E)** for edits. **V** orbits; **F** frames.
 5. Switch to **UV / Map view**, inspect individual channels or select **Selected smart mask** to troubleshoot the procedural layer.
 6. **Export maps** saves a ZIP of PNG textures. **Save project** keeps your layers, embedded mesh and paint-mask edits.
 
@@ -81,11 +84,12 @@ The browser build can download ZIP/project files. The Electron build opens a nat
 
 \`\`\`text
 src/geometry.js                 UV/geometry preparation, vertex curvature, BVH
-src/edge.js                     Shared-edge adjacency, signed dihedral angles, world-space triangle altitude
+src/edge.js                     Welded 3D topology, signed dihedral features and local segment spatial index
 src/gpu.js                      GPU raster passes, ray baking, layer cache, painting, export
 src/shaders/uv.*                UV-space raster maps
 src/shaders/ray.frag.glsl       GPU BVH traversal for AO, bent normals, thickness
-src/shaders/smart.frag.glsl     Once-per-layer GPU smart masks: edge wear, drips, leaks, rust, dust, scratches
+src/shaders/smart.frag.glsl     Per-effect GPU procedural masks: edge wear, drips, leaks, rust, dust, scratches
+src/shaders/mask-blend.frag.glsl Composites multiple mask effects with independent blending
 src/shaders/layer.frag.glsl     Cached-mask PBR channel compositor
 src/shaders/brush.frag.glsl     Seam-aware 3D-position mask painting
 src/shaders/normal.frag.glsl    Height-to-tangent-normal approximation
