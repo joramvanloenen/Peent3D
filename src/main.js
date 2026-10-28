@@ -353,6 +353,11 @@ async function useMesh(file){
     gpu.setGeometry(result);
     $('mesh-info').textContent=result.name+' · '+result.triangleCount.toLocaleString()+' tris · '+result.meshCount+' mesh(es)';
     await bake();
+    if(result.uvOverlap>.025){
+      const percent=Math.round(result.uvOverlap*100);
+      $('mesh-info').textContent+=' · UV overlaps '+percent+'%';
+      status('⚠ Overlapping UVs detected. Geometry-driven baked masks may be incorrect; unwrap the mesh UVs.');
+    }
   }catch(error){console.error(error);status('Import failed: '+error.message);}
   finally{$('loading').classList.add('hidden');}
 }

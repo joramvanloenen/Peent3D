@@ -52,3 +52,10 @@ test('a flat triangulated plane does not produce false convex wear',()=>{
   assert.equal(result.edgeStats.convex,0);
   assert.equal(result.edgeStats.concave,0);
 });
+
+test('overlapping source UVs are detected, but unwrapped planar UVs are not',()=>{
+  const box=prepareScene(new THREE.Mesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshStandardMaterial()),'Stacked UV cube');
+  assert.ok(box.uvOverlap>.4,'Default BoxGeometry stacks six UV faces');
+  const plane=prepareScene(new THREE.Mesh(new THREE.PlaneGeometry(2,2,2,2),new THREE.MeshStandardMaterial()),'Plane');
+  assert.ok(plane.uvOverlap<.02,'Unwrapped plane has no overlapping area');
+});
