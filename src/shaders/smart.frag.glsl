@@ -52,7 +52,7 @@ float scratchPlane(vec2 p,float seed){
  vec2 q=p*max(.01,uScale)*5.;
  q.x+=.075*(fbm(q*1.3+seed)-.5);
  vec2 cell=floor(q);
- float pixelFootprint=max(length(fwidth(q))*.50,.003);
+ float pixelFootprint=max(max(fwidth(q.x),fwidth(q.y))*.48,.003);
  float result=0.;
  for(int y=-1;y<=1;y++) for(int x=-1;x<=1;x++){
    vec2 c=cell+vec2(float(x),float(y));
@@ -69,7 +69,8 @@ float scratchPlane(vec2 p,float seed){
    float width=max(.008,uWidth)*mix(.60,1.25,hash21(c+seed+7.2));
    float d=abs(dot(perpendicular,vec2(-dir.y,dir.x))+waviness);
    float taper=pow(max(0.,1.-along/len),.25);
-   float mark=(1.-smoothstep(max(0.,width*.10-pixelFootprint*.30),width+pixelFootprint,d))*taper;
+   float coverage=clamp(width/max(pixelFootprint,.001),.14,.85);
+   float mark=(1.-smoothstep(max(0.,width-pixelFootprint),width+pixelFootprint,d))*taper*coverage;
    result=max(result,mark);
  }
  return result;
@@ -81,12 +82,14 @@ float scratches3(vec3 p,vec3 n){
         w.z*scratchPlane(p.xy,uSeed+13.1);
 }
 float dripPlane(vec2 p,float seed){
- float freq=max(.2,uScale)*9.;
+ // Each stain is a coherent, downward projected path. Streaks start at the
+ // exposed top of the object, while leaks can begin below local ledges.
+ float freq=max(.2,uScale)*7.;
  float x=p.x*freq;
- float y=(p.y+(1.-uGravity)*p.x*.7)*freq;
- float pixelFootprint=max(fwidth(x)*.55,.004);
- float period=max(1.2,uLength*9.);
- float row=floor(y/period);
+ float y=(p.y+(1.-uGravity)*p.x*.4)*freq;
+ float footprint=max(fwidth(x)*.48,.004);
+ float period=max(2.,uLength*7.);
+ float row=floor((y-uMin.y*freq)/period);
  float col=floor(x);
  float result=0.;
  for(int k=-1;k<=1;k++){
@@ -94,19 +97,29 @@ float dripPlane(vec2 p,float seed){
    float random=hash21(vec2(column,seed));
    if(random>uDensity)continue;
    float xc=column+.15+.70*hash21(vec2(column+9.3,seed));
-   float wobble=(noise2(vec2(y*.14,column*.87+seed))-.5)*.24;
+   float variation=hash21(vec2(column,seed+17.));
+   float wobble=(noise2(vec2(y*.22,column*.87+seed))-.5)*.14;
    float dist=abs(x-xc-wobble);
-   float dripLength=period*mix(.22,.96,hash21(vec2(column,seed+17.)));
-   float top=(row+1.)*period-.2*period*hash21(vec2(column,seed+22.));
-   float drop=top-y;
-   float endpoint=1.-smoothstep(dripLength*.75,dripLength,drop);
-   float start=smoothstep(0.,.18,max(drop,0.));
-   float diameter=max(.02,uWidth)*mix(.65,1.35,hash21(vec2(column,seed+31.)));
-   float tapered=mix(1.,.24,clamp(drop/max(.01,dripLength),0.,1.));
-   float line=1.-smoothstep(max(0.,diameter*.10-pixelFootprint*.3),diameter+pixelFootprint,dist/max(.22,tapered));
-   result=max(result,line*start*endpoint*step(0.,drop));
+   float startY=uMask==8
+      ? (uMin.y+uSize.y)*freq - freq*.05*hash21(vec2(column,seed+22.))
+      : (row+1.)*period+uMin.y*freq-period*.13*hash21(vec2(column,seed+22.));
+   float len=uMask==8
+      ? uSize.y*freq*clamp(uLength/2.5,.08,1.)*mix(.28,1.,variation)
+      : period*mix(.28,.94,variation);
+   float drop=startY-y;
+   if(drop<0.||drop>len)continue;
+   float taper=mix(1.,.44,clamp(drop/max(.001,len),0.,1.));
+   float width=max(.006,uWidth)*mix(.55,1.30,hash21(vec2(column,seed+31.)));
+   float radius=width*taper;
+   float core=1.-smoothstep(max(0.,radius-footprint),radius+footprint,dist);
+   float halo=1.-smoothstep(radius+footprint,radius*2.7+footprint,dist);
+   float antialiasCoverage=clamp(radius/max(.001,footprint),.18,1.);
+   float endFade=1.-smoothstep(len*.70,len,drop);
+   float startFade=smoothstep(0.,max(.08,footprint),drop);
+   float stain=(core*.72+halo*.15)*antialiasCoverage*endFade*startFade;
+   result=max(result,stain);
  }
- return result;
+ return clamp(result,0.,1.);
 }
 float verticalRunoff(vec3 p,vec3 n){
  // Project onto vertical X/Y or Z/Y planes, suppress horizontal surfaces.
@@ -142,14 +155,14 @@ void main(){
  else if(uMask==6)result=1.-smoothstep(.15,.75,texture(uThickness,vUv).r);
  else if(uMask==7)result=broad;
  else if(uMask==8)result=vertical;
- else if(uMask==9)result=vertical*mix(.65,1.,clamp(cavity*.9+concave*.9,0.,1.));
+ else if(uMask==9)result=vertical*mix(.38,1.,clamp(cavity*.85+concave*.95,0.,1.));
  else if(uMask==10){
-   float pockets=clamp(cavity*.65+concave*.65+(1.-height)*.12,0.,1.);
-   float pinholes=noise3(p*max(.05,uScale)*12.0+uSeed+4.1,n);
-   float oxideField=broad*.44+fine*.36+pinholes*.20 + pockets*.12;
-   float corrosion=smoothstep(.43,.67,oxideField);
-   // Local micro-pitting combined with geometric water traps and thin gravity trails.
-   result=clamp(corrosion*mix(.37,.85,uCavity)+pockets*.48+vertical*.25,0.,1.);
+   float pockets=clamp(cavity*.86+concave*.94+(1.-height)*.13,0.,1.);
+   float pinholes=noise3(p*max(.05,uScale)*11.0+uSeed+4.1,n);
+   float oxideField=broad*.45+fine*.35+pinholes*.20;
+   float corrosion=smoothstep(.55,.74,oxideField+pockets*.10);
+   // Mostly local corrosion; exposed flat surfaces retain scattered fine pitting.
+   result=clamp(corrosion*mix(.10,.30,uCavity)+pockets*(.52+.26*corrosion)+vertical*.18,0.,1.);
  }else if(uMask==11){
    float up=pow(clamp(n.y,0.,1.),mix(5.,.45,uTopBias));
    float trapped=clamp(cavity*.60+concave*.28,0.,1.);
