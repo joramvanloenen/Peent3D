@@ -34,17 +34,17 @@ jobs:
       - name: Publish GitHub release with direct downloadable EXEs
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.0-preview
+          tag_name: v0.2.1-preview
           target_commitish: main
-          name: Peent3D v0.2.0 — Windows smart materials preview
+          name: Peent3D v0.2.1 — Windows smart materials preview
           prerelease: true
           body: |
-            Peent3D v0.2.0: topology-based convex/concave edge baker, adjustable world-space Edge Distance, dedicated dust/rust/leak/streak/scratch smart masks, neutral dark-grey/orange UI, scrollable inspector, and directly editable numeric values with reset buttons.
+            Peent3D v0.2.1: topology-based convex/concave edge baker, adjustable world-space Edge Distance, dedicated dust/rust/leak/streak/scratch smart masks, neutral dark-grey/orange UI, scrollable inspector, and directly editable numeric values with reset buttons.
             Windows WebGL2 GPU smoke test runs before publishing.
             **Download either the Setup installer or the portable executable under Assets below.**
             Requires Windows 10/11 and a WebGL2-capable GPU.
             Windows SmartScreen may warn because this preview is not code-signed.
           files: |
-            release/Peent3D Setup 0.2.0.exe
-            release/Peent3D 0.2.0.exe
+            release/Peent3D Setup 0.2.1.exe
+            release/Peent3D 0.2.1.exe
           fail_on_unmatched_files: true
