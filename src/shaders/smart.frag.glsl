@@ -56,6 +56,15 @@ float softEdge(float d,float width,float softness){
  float inner=width*(1.-clamp(softness,.01,.95));
  return 1.-smoothstep(inner,max(inner+.00001,width),d);
 }
+// Smooth geometric coverage BEFORE combining with procedural grunge.
+// Softness controls the crossfade from localized edge wear to a broad,
+// continuous 0..1 falloff. The final threshold belongs AFTER both fields.
+float softWearDistance(float d,float width,float softness){
+ float x=clamp(d/max(width,.00001),0.,1.);
+ float broad=1.-smoothstep(0.,1.,x);
+ float focused=softEdge(d,width,softness);
+ return mix(focused,broad,clamp(softness,0.,1.));
+}
 float scratchPlane(vec2 p,float seed){
  vec2 q=p*max(.01,uScale)*5.;
  q.x+=.075*(fbm(q*1.3+seed)-.5);
@@ -151,10 +160,11 @@ float transitionBreakup(float coverage,float grunge,float edgeCoverage){
  float feather=min(.085,(hi-lo)*.22);
  float band=smoothstep(lo,lo+feather,edgeCoverage)*
            (1.-smoothstep(hi-feather,hi,edgeCoverage));
- // Hardness controls grunge's contrast/threshold, independent from intensity.
- float softness=mix(.28,.012,clamp(uBreakupHardness,0.,1.));
+ // Grunge remains a soft 0..1 field during combination. Hardness narrows
+ // its transition without binary thresholding; final contrast happens after.
+ float softness=mix(.38,.08,clamp(uBreakupHardness,0.,1.));
  float breakupNoise=smoothstep(.5-softness,.5+softness,grunge);
- return mix(coverage,coverage*breakupNoise,uBreakup*band);
+ return mix(coverage,coverage*breakupNoise,clamp(uBreakup,0.,1.)*band);
 }
 void main(){
  vec4 pos=texture(uPosition,vUv);
@@ -171,7 +181,7 @@ void main(){
  bool requiresNoise=(uMask==7||uMask==10||uMask==11||uBreakup>0.);
  if(requiresEdges){
    vec4 edges=texture(uEdges,vUv);
-   if(uMask==1)convex=softEdge(edges.r,uEdgeDistance,uSoftness)*smoothstep(uAngleThreshold,uAngleThreshold+12.,edges.b);
+   if(uMask==1)convex=softWearDistance(edges.r,uEdgeDistance,uSoftness)*smoothstep(uAngleThreshold,uAngleThreshold+12.,edges.b);
    if(uMask!=1)concave=softEdge(edges.g,uEdgeDistance*1.5,uSoftness)*smoothstep(uAngleThreshold,uAngleThreshold+12.,edges.a);
  }
  if(requiresAO)cavity=1.-texture(uAO,vUv).r;
@@ -215,10 +225,17 @@ void main(){
      ?clamp(.5+.5*signedH,0.,1.)
      :smoothstep(cutoff,cutoff+.20,max(0.,magnitude));
  }
- result=clamp((result-.5)*uContrast+.5,0.,1.);
- if(uBreakup>0.){
-   if(uMask==1)result=transitionBreakup(result,fine,convex);
-   else if(uMask<=7||uMask==10||uMask==11||uMask==13){
+ // Edge wear: (1) soft geometric distance, (2) soft grunge,
+ // (3) combine with the adjustable breakup band, (4) final contrast.
+ // Applying contrast before combining was making chipped boundaries harsh,
+ // preventing fine grunge from naturally shifting the distance falloff.
+ if(uMask==1){
+   if(uBreakup>0.)result=transitionBreakup(result,fine,convex);
+   result=clamp((result-.5)*uContrast+.5,0.,1.);
+ }else{
+   // Retain existing processing of all other smart-mask generators.
+   result=clamp((result-.5)*uContrast+.5,0.,1.);
+   if(uBreakup>0. && (uMask<=7||uMask==10||uMask==11||uMask==13)){
      float softness=mix(.28,.012,clamp(uBreakupHardness,0.,1.));
      result*=mix(1.,smoothstep(.5-softness,.5+softness,fine),uBreakup);
    }

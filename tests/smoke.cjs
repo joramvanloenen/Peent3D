@@ -76,6 +76,20 @@ const path = require('node:path');
     assert.equal(await edgeBand.inputValue(),'2');
     await page.waitForTimeout(300);
     await page.screenshot({path:path.join(__dirname,'smoke-edge-full-breakup.png'),timeout:20000});
+    // Final contrast must sharpen the combined soft distance+noise mask.
+    await page.locator('#channel-view').selectOption('smartMask');
+    const maskContrast=page.locator('.number-control:has(label:text-is("Contrast")) input[type=number]');
+    await maskContrast.fill('1');
+    await maskContrast.press('Tab');
+    await page.waitForTimeout(380);
+    await page.screenshot({path:path.join(__dirname,'smoke-edge-soft-combined.png'),timeout:20000});
+    await maskContrast.fill('4.5');
+    await maskContrast.press('Tab');
+    await page.waitForTimeout(380);
+    await page.screenshot({path:path.join(__dirname,'smoke-edge-final-contrast.png'),timeout:20000});
+    await maskContrast.fill('1.6');
+    await maskContrast.press('Tab');
+    await page.locator('#channel-view').selectOption('material');
     // Existing control behavior (including defaults and resets) stays intact.
     await edgePosition.fill('0.61');await edgePosition.press('Tab');
     await edgeBand.fill('0.46');await edgeBand.press('Tab');
