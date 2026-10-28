@@ -336,6 +336,10 @@ window.addEventListener('keydown',e=>{
   if(e.key.toLowerCase()==='f')gpu.frame();
 });
 renderLayers();renderProperties();refreshPreview();
+if(new URLSearchParams(location.search).get('smoke')==='1'){
+  $('resolution').value='256';
+  $('samples').value='8';
+}
 gpu.setGeometry(createDemoMesh());
 $('mesh-info').textContent='Demo torus knot · '+gpu.model.triangleCount.toLocaleString()+' tris';
 bake();

@@ -21,7 +21,8 @@
     "electron": "45.1.0",
     "electron-builder": "^26.18.0",
     "concurrently": "^9.2.1",
-    "wait-on": "^8.0.0"
+    "wait-on": "^8.0.0",
+    "playwright-core": "^1.56.1"
   },
   "build": {
     "appId": "com.peent3d.editor",

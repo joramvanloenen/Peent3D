@@ -26,3 +26,15 @@ jobs:
           path: release/*
           if-no-files-found: error
           retention-days: 14
+      - name: GUI shader smoke test (software WebGL2)
+        run: node tests/smoke.cjs
+        timeout-minutes: 6
+        continue-on-error: true
+      - name: Upload GUI smoke screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Peent3D-GUI-Smoke
+          path: tests/smoke.png
+          if-no-files-found: ignore
+

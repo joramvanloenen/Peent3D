@@ -1,6 +1,11 @@
 const {app, BrowserWindow, ipcMain, dialog, session} = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
+if(process.env.PEENT_TEST==='1'){
+  app.commandLine.appendSwitch('use-gl','angle');
+  app.commandLine.appendSwitch('use-angle','swiftshader');
+  app.commandLine.appendSwitch('enable-unsafe-swiftshader');
+}
 let mainWindow;
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -14,7 +19,8 @@ function createWindow() {
   mainWindow.once('ready-to-show',()=>mainWindow.show());
   mainWindow.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   mainWindow.webContents.on('will-navigate',e=>e.preventDefault());
-  if(!app.isPackaged)mainWindow.loadURL('http://127.0.0.1:5173');
+  if(process.env.PEENT_TEST==='1')mainWindow.loadFile(path.join(__dirname,'..','dist','index.html'),{query:{smoke:'1'}});
+  else if(!app.isPackaged)mainWindow.loadURL('http://127.0.0.1:5173');
   else mainWindow.loadFile(path.join(__dirname,'..','dist','index.html'));
 }
 app.whenReady().then(()=>{
