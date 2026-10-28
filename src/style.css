@@ -88,3 +88,13 @@ input[type=range]{cursor:pointer}
 #ray-distance-reset:hover{color:var(--accent)}
 
 #new-layer-preset{max-width:139px;min-width:0;flex:1;font-size:11px;padding:4px;background:#1e1e1e}
+
+.mask-add-row{display:flex;gap:7px;margin:8px 0}
+.mask-add-row select{flex:1;min-width:0}
+.mask-add-row button{white-space:nowrap;border-color:#b46c35;color:var(--accent)}
+.mask-stack{display:flex;flex-direction:column;gap:4px;max-height:210px;overflow-y:auto;margin:8px 0 9px}
+.mask-stack-item{display:flex;align-items:center;gap:5px;background:#303030;border:1px solid #414141;border-radius:5px;padding:4px}
+.mask-stack-item.selected{background:#4b3828;border-color:var(--accent)}
+.mask-stack-item>button:first-child{padding:4px 8px;border:0;background:transparent;color:var(--accent)}
+.mask-stack-item .mask-name{flex:1;text-align:left;border:0;background:transparent;font-size:11px}
+.mask-stack-item .mask-name:hover{color:var(--accent)}

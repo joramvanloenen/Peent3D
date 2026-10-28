@@ -29,7 +29,7 @@ const maskDescription={
 };
 const PARAM_DEFAULTS=Object.freeze({
  roughness:.58,metallic:0,height:0,opacity:1,scale:3,variation:.08,
- contrast:1.5,breakup:.12,breakupScale:1,breakupHardness:.58,breakupPosition:.53,breakupWidth:.60,edgeDistance:.038,angleThreshold:22,
+ contrast:1.5,breakup:.12,breakupScale:1,breakupHardness:.58,breakupPosition:.53,breakupWidth:.60,edgeDistance:.038,angleThreshold:180,
  softness:.36,density:.38,length:.85,width:.035,direction:25,
  gravity:1,cavity:.65,aoProtect:.35,topBias:.74,seed:0
 });
@@ -59,18 +59,52 @@ const presets=[
   {name:'Gravity leaks',color:'#5b4636',roughness:.8,metallic:0,mask:9,projection:'triplanar',variation:.05,opacity:.68,...GENERATOR_DEFAULTS[9]},
   {name:'Fine scratches',color:'#c0b9b0',roughness:.35,metallic:.9,height:-.028,mask:12,projection:'triplanar',variation:.02,opacity:.54,...GENERATOR_DEFAULTS[12]}
 ];
-let nextId=1;
+let nextId=1,nextMaskId=1;
+const MASK_PARAMS=['scale','seed','contrast','breakup','breakupScale','breakupHardness',
+ 'breakupPosition','breakupWidth','edgeDistance','angleThreshold','softness','density',
+ 'length','width','direction','gravity','cavity','aoProtect','topBias','maskInvert'];
+const EDGE_ANGLE_TYPES=new Set([1,2,9,10,11]);
+function createMaskEntry(type=1,partial={},legacy=false){
+ const defaults={...PARAM_DEFAULTS,...(GENERATOR_DEFAULTS[type]||{}),
+   angleThreshold:EDGE_ANGLE_TYPES.has(type)?20:180};
+ const entry={...defaults,mask:type,maskInvert:false,id:'mask-'+nextMaskId++,
+   enabled:true,combine:'multiply',opacity:1};
+ for(const key of MASK_PARAMS){
+   if(partial[key]===undefined)continue;
+   // Older single-mask projects had a generic angle threshold (22 degrees).
+   // On non-edge generators this was never a meaningful setting; use 180 instead.
+   if(legacy&&key==='angleThreshold'&&!EDGE_ANGLE_TYPES.has(type))continue;
+   entry[key]=partial[key];
+ }
+ if(!legacy){
+   if(partial.id?.startsWith('mask-'))entry.id=partial.id;
+   if(partial.enabled!==undefined)entry.enabled=partial.enabled;
+   if(partial.combine)entry.combine=partial.combine;
+   if(partial.opacity!==undefined)entry.opacity=partial.opacity;
+ }
+ return entry;
+}
+function normalizeLayerMasks(layer,legacy=false){
+ layer.masks=Array.isArray(layer.masks)
+   ?layer.masks.map(e=>createMaskEntry(Number(e.mask??0),e,false))
+   :[createMaskEntry(Number(layer.mask??0),layer,true)];
+ return layer.masks;
+}
 function newLayer(partial={}){
  const mask=Number(partial.mask??0);
- return {
+ const layer={
   id:'layer-'+nextId++,name:'New material',color:'#888888',
   ...PARAM_DEFAULTS,...(GENERATOR_DEFAULTS[mask]||{}),
-  projection:'triplanar',mask,maskInvert:false,imageData:null,visible:true,
+  projection:'triplanar',mask,imageData:null,visible:true,
   seed:Math.random()*100,...partial
  };
+ if(Array.isArray(partial.masks))normalizeLayerMasks(layer);
+ else layer.masks=[createMaskEntry(mask,partial,false)];
+ return layer;
 }
 let layers=[newLayer(presets[0]),newLayer(presets[1]),newLayer(presets[2]),newLayer(presets[3])];
 let selected=layers.at(-1)?.id;
+let selectedMaskId=layers.at(-1)?.masks?.[0]?.id;
 let tool='orbit',uvTab=false,painting=false,lastPaintPoint=null;
 let brushRadius=.17,brushHardness=.55,brushStrength=.72;
 const BRUSH_DEFAULTS={brushRadius:.17,brushHardness:.55,brushStrength:.72};
@@ -102,11 +136,11 @@ try{
 gpu.layers=layers;
 function status(message){$('status').textContent=message;}
 function currentLayer(){return layers.find(l=>l.id===selected);}
-function mark(index=0,field=null){
+function mark(index=0,field=null,maskId=null,effectChanged=true){
  // Only masks or procedural parameters need smart-generator evaluation.
  // A roughness slider must not regenerate edge wear, AO-derived dirt, etc.
- const smart=field===null||!materialFields.has(field);
- gpu.markDirty(index,{smart,channel:channelForField[field]||null});
+ const smart=maskId!==null||field===null||!materialFields.has(field);
+ gpu.markDirty(index,{smart,channel:maskId===null?(channelForField[field]||null):null,maskId,effectChanged});
  if(!scheduled){
   scheduled=true;
   requestAnimationFrame(()=>{
@@ -148,9 +182,9 @@ function renderLayers(){
   eye.className='eye';
   const swatch=document.createElement('span');swatch.className='swatch';swatch.style.background=layer.color;
   const label=document.createElement('span');label.className='label';label.textContent=layer.name;
-  const kind=document.createElement('span');kind.className='layer-kind';kind.textContent=layer.mask===0?'Fill':'Smart';
+  const kind=document.createElement('span');kind.className='layer-kind';kind.textContent=layer.masks.length+' mask'+(layer.masks.length===1?'':'s');
   row.append(eye,swatch,label,kind);
-  row.addEventListener('click',()=>{selected=layer.id;gpu.selectedLayerId=selected;renderLayers();renderProperties();refreshPreview();});
+  row.addEventListener('click',()=>{selected=layer.id;selectedMaskId=layer.masks[0]?.id;gpu.selectedLayerId=selected;renderLayers();renderProperties();refreshPreview();});
   root.append(row);
  }
 }
@@ -193,39 +227,51 @@ function renderProperties(){
  const root=$('layer-properties');root.replaceChildren();
  const layer=currentLayer();
  if(!layer){root.textContent='Select a layer';return;}
+ normalizeLayerMasksIfMissing(layer);
+ const index=()=>layers.indexOf(layer);
+ let effect=layer.masks.find(e=>e.id===selectedMaskId)||layer.masks[0];
+ if(effect)selectedMaskId=effect.id;
  function section(text){const el=document.createElement('div');el.className='section-label';el.textContent=text;root.append(el);}
  function row(name,element,onChange,event='input'){
-  const wrap=document.createElement('div');wrap.className='row';
-  const label=document.createElement('label');label.textContent=name;
-  wrap.append(label,element);
-  element.addEventListener(event,()=>{onChange(element.value);mark(layers.indexOf(layer));if(name==='Name'||name==='Color')renderLayers();});
-  root.append(wrap);
+   const wrap=document.createElement('div');wrap.className='row';
+   const label=document.createElement('label');label.textContent=name;
+   wrap.append(label,element);
+   element.addEventListener(event,()=>{onChange(element.value);});
+   root.append(wrap);
  }
  function textInput(name,field){
-  const input=document.createElement('input');input.type='text';input.value=layer[field];
-  row(name,input,v=>layer[field]=v,'change');
+   const input=document.createElement('input');input.type='text';input.value=layer[field];
+   row(name,input,v=>{layer[field]=v;mark(index(),field);renderLayers();},'change');
  }
  function colorInput(){
-  const input=document.createElement('input');input.type='color';input.value=layer.color;
-  row('Color',input,v=>layer.color=v,'input');
+   const input=document.createElement('input');input.type='color';input.value=layer.color;
+   row('Color',input,v=>{layer.color=v;mark(index(),'color');renderLayers();});
  }
- function slider(name,field,min,max,step){
-  const value=Number(layer[field]??PARAM_DEFAULTS[field]??0);
-  const resetValue=(GENERATOR_DEFAULTS[layer.mask]||{})[field]??PARAM_DEFAULTS[field]??value;
-  root.append(numericControl({name,value,min,max,step,defaultValue:resetValue,
-   onChange:v=>{layer[field]=v;mark(layers.indexOf(layer),field);}}));
+ function slider(name,field,min,max,step,owner=layer,regenerate=true){
+   const value=Number(owner[field]??PARAM_DEFAULTS[field]??0);
+   const isMask=owner!==layer;
+   const resetValue=isMask
+     ?(GENERATOR_DEFAULTS[owner.mask]||{})[field]??(field==='angleThreshold'?(EDGE_ANGLE_TYPES.has(owner.mask)?20:180):PARAM_DEFAULTS[field]??1)
+     :PARAM_DEFAULTS[field]??value;
+   root.append(numericControl({name,value,min,max,step,defaultValue:resetValue,
+     onChange:v=>{
+       owner[field]=v;
+       mark(index(),field,isMask?owner.id:null,regenerate);
+     }}));
  }
- function dropdown(name,field,options,callback=null){
-  const el=document.createElement('select');
-  for(const [text,value] of options){
-   const opt=document.createElement('option');opt.textContent=text;opt.value=String(value);
-   if(String(layer[field])===String(value))opt.selected=true;
-   el.append(opt);
-  }
-  row(name,el,value=>{
-   layer[field]=typeof layer[field]==='number'?Number(value):typeof layer[field]==='boolean'?value==='true':value;
-   if(callback)callback();
-  },'change');
+ function dropdown(name,field,options,owner=layer,callback=null,regenerate=true){
+   const el=document.createElement('select');
+   for(const [text,value] of options){
+     const opt=document.createElement('option');opt.textContent=text;opt.value=String(value);
+     if(String(owner[field])===String(value))opt.selected=true;
+     el.append(opt);
+   }
+   row(name,el,value=>{
+     owner[field]=typeof owner[field]==='number'?Number(value)
+       :typeof owner[field]==='boolean'?value==='true':value;
+     if(callback)callback();
+     mark(index(),field,owner===layer?null:owner.id,regenerate);
+   },'change');
  }
  section('Material');
  textInput('Name','name');colorInput();
@@ -236,70 +282,126 @@ function renderProperties(){
  section('Projection & detail');
  const imageRow=document.createElement('div');imageRow.className='property-actions';
  imageRow.append(button(layer.imageData?'Replace image':'Load image',()=>{imageTarget=layer.id;imageFile.click();}),
-   button('Clear image',()=>{layer.imageData=null;gpu.setLayerImage(layer).then(()=>mark(layers.indexOf(layer)));renderProperties();}));
+   button('Clear image',()=>{layer.imageData=null;gpu.setLayerImage(layer).then(()=>mark(index()));renderProperties();}));
  root.append(imageRow);
  dropdown('Projection','projection',[['Triplanar','triplanar'],['UV','uv']]);
  slider('Pattern scale','scale',.1,20,.1);
  slider('Variation','variation',0,1,.01);
- section('Smart mask');
- dropdown('Generator','mask',masks,()=>{
-  Object.assign(layer,GENERATOR_DEFAULTS[layer.mask]||{});
-  renderProperties();
+ section('Smart mask stack');
+ const addRow=document.createElement('div');addRow.className='mask-add-row';
+ const addSelect=document.createElement('select');addSelect.id='mask-add-type';
+ addSelect.setAttribute('aria-label','Add smart mask generator');
+ for(const [name,value] of masks){
+   const option=document.createElement('option');option.value=String(value);option.textContent=name;
+   if(value===1)option.selected=true;
+   addSelect.append(option);
+ }
+ const add=button('＋ Mask',()=>{
+   const created=createMaskEntry(Number(addSelect.value));
+   layer.masks.push(created);selectedMaskId=created.id;
+   mark(index(),null,created.id);renderProperties();renderLayers();
  });
- const description=document.createElement('p');description.className='mask-description';
- description.textContent=maskDescription[layer.mask]||'';root.append(description);
- if(layer.mask!==0){
-  slider('Contrast','contrast',.2,8,.05);
-  if([1,2,3,4,5,6,7,10,11].includes(layer.mask)){
-   slider(layer.mask===1?'Breakup intensity':'Grunge intensity','breakup',0,1,.01);
-   slider('Breakup hardness','breakupHardness',0,1,.01);
-   slider('Grunge scale','breakupScale',.2,8,.1);
-   if(layer.mask===1){
-    slider('Breakup position','breakupPosition',.05,.95,.01);
-    slider('Breakup band width','breakupWidth',.05,.95,.01);
-    const info=document.createElement('p');info.className='property-help';
-    info.textContent='Noise chips only the partially worn edge transition. Fully worn edge cores remain untouched. Position moves the breakup toward or away from the edge; width controls how much of the transition is affected.';
-    root.append(info);
+ add.id='btn-add-smart-mask';addRow.append(addSelect,add);root.append(addRow);
+ const list=document.createElement('div');list.className='mask-stack';
+ for(let i=0;i<layer.masks.length;i++){
+   const mask=layer.masks[i];
+   const item=document.createElement('div');
+   item.className='mask-stack-item'+(mask.id===selectedMaskId?' selected':'');
+   const toggle=button(mask.enabled===false?'○':'◉',e=>{
+     e.stopPropagation();mask.enabled=mask.enabled===false;
+     mark(index(),null,mask.id,false);renderProperties();
+   });toggle.title='Enable or disable mask';
+   const label=button((i+1)+'. '+(masks.find(m=>m[1]===mask.mask)?.[0]||'Mask'),()=>{
+     selectedMaskId=mask.id;renderProperties();
+   });label.className='mask-name';
+   item.append(toggle,label);list.append(item);
+ }
+ root.append(list);
+ if(effect){
+   const actions=document.createElement('div');actions.className='property-actions';
+   const at=layer.masks.indexOf(effect);
+   actions.append(
+     button('↑',()=>{if(at<1)return;[layer.masks[at-1],layer.masks[at]]=[layer.masks[at],layer.masks[at-1]];mark(index(),null,effect.id,false);renderProperties();}),
+     button('↓',()=>{if(at>=layer.masks.length-1)return;[layer.masks[at+1],layer.masks[at]]=[layer.masks[at],layer.masks[at+1]];mark(index(),null,effect.id,false);renderProperties();}),
+     button('− Remove',()=>{layer.masks.splice(at,1);selectedMaskId=layer.masks[Math.min(at,layer.masks.length-1)]?.id;
+       mark(index(),null,null,false);renderProperties();renderLayers();})
+   );root.append(actions);
+   dropdown('Generator','mask',masks,effect,()=>{
+     const id=effect.id,enabled=effect.enabled,combine=effect.combine,opacity=effect.opacity;
+     Object.assign(effect,createMaskEntry(effect.mask));
+     effect.id=id;effect.enabled=enabled;effect.combine=combine;effect.opacity=opacity;
+     renderProperties();renderLayers();
+   });
+   const description=document.createElement('p');description.className='mask-description';
+   description.textContent=maskDescription[effect.mask]||'';root.append(description);
+   dropdown('Combine','combine',[
+     ['Replace','replace'],['Multiply','multiply'],['Add','add'],
+     ['Subtract','subtract'],['Max','max'],['Min','min']
+   ],effect,null,false);
+   slider('Mask opacity','opacity',0,1,.01,effect,false);
+   // Edge types use minimum geometric dihedral angle. Other generators
+   // use maximum surface tilt measured from world up (180° = unrestricted).
+   slider('Angle threshold','angleThreshold',0,180,1,effect);
+   const angleHelp=document.createElement('p');angleHelp.className='property-help';
+   angleHelp.textContent=EDGE_ANGLE_TYPES.has(effect.mask)
+     ?'Minimum face-to-face angle for real convex/concave geometry. UV seams and coplanar edges are ignored.'
+     :'Maximum permitted surface angle from upward. 180° means unrestricted.';
+   root.append(angleHelp);
+   if(effect.mask!==0){
+     slider('Contrast','contrast',.2,8,.05,effect);
+     if([1,2,3,4,5,6,7,10,11].includes(effect.mask)){
+       slider(effect.mask===1?'Breakup intensity':'Grunge intensity','breakup',0,1,.01,effect);
+       slider('Breakup hardness','breakupHardness',0,1,.01,effect);
+       slider('Grunge scale','breakupScale',.2,8,.1,effect);
+       if(effect.mask===1){
+         slider('Breakup position','breakupPosition',.05,.95,.01,effect);
+         slider('Breakup band width','breakupWidth',.05,.95,.01,effect);
+       }
+     }
+     if([1,2,10,9,11].includes(effect.mask)){
+       slider('Edge distance','edgeDistance',.002,.3,.001,effect);
+       slider('Edge softness','softness',.01,.95,.01,effect);
+     }
+     if(effect.mask===1)slider('AO protection','aoProtect',0,1,.01,effect);
+     if([8,9,10,12].includes(effect.mask)){
+       slider('Density','density',0,1,.01,effect);
+       slider('Length','length',.05,4,.01,effect);
+       slider('Line width','width',.004,.4,.002,effect);
+     }
+     if(effect.mask===12)slider('Scratch angle','direction',-180,180,1,effect);
+     if([8,9,10].includes(effect.mask))slider('Gravity','gravity',0,1,.01,effect);
+     if([9,10,11].includes(effect.mask))slider('Cavity influence','cavity',0,1,.01,effect);
+     if(effect.mask===11)slider('Top bias','topBias',0,1,.01,effect);
+     dropdown('Invert','maskInvert',[['Normal',false],['Inverted',true]],effect);
    }
-  }
-  if([1,2,10].includes(layer.mask)){
-   slider('Edge distance','edgeDistance',.002,.3,.001);
-   slider('Angle threshold','angleThreshold',0,120,1);
-   slider('Edge softness','softness',.01,.95,.01);
-  }
-  if(layer.mask===1)slider('AO protection','aoProtect',0,1,.01);
-  if([8,9,10,12].includes(layer.mask)){
-   slider('Density','density',0,1,.01);
-   slider('Length','length',.05,4,.01);
-   slider('Line width','width',.004,.4,.002);
-  }
-  if(layer.mask===12)slider('Scratch angle','direction',-180,180,1);
-  if([8,9,10].includes(layer.mask))slider('Gravity','gravity',0,1,.01);
-  if([9,10,11].includes(layer.mask))slider('Cavity influence','cavity',0,1,.01);
-  if(layer.mask===11)slider('Top bias','topBias',0,1,.01);
-  dropdown('Invert','maskInvert',[['Normal',false],['Inverted',true]]);
+ }else{
+   const empty=document.createElement('p');empty.className='mask-description';
+   empty.textContent='No smart masks: this material fills the entire surface. Add a mask to limit its coverage.';
+   root.append(empty);
  }
  const hint=document.createElement('p');hint.className='property-help';
- hint.textContent='Edge distance is measured in normalized model-space units; it stays consistent across UV islands and output resolutions. Paint or erase to adjust any mask.';
+ hint.textContent='Mask effects combine in stack order (top to bottom). A separate painted mask applies after the combined procedural result.';
  root.append(hint);
  section('Brush');
  const maskActions=document.createElement('div');maskActions.className='property-actions';
- maskActions.append(button('Clear mask',()=>{gpu.fillMask(layer,0);mark(layers.indexOf(layer));}),
-   button('Fill mask',()=>{gpu.fillMask(layer,1);mark(layers.indexOf(layer));}));
+ maskActions.append(button('Clear mask',()=>{gpu.fillMask(layer,0);mark(index(),null,null,false);}),
+   button('Fill mask',()=>{gpu.fillMask(layer,1);mark(index(),null,null,false);}));
  root.append(maskActions);
- const brushFields=[
-  ['Radius','brushRadius',.015,.6,.005,()=>brushRadius,v=>brushRadius=v],
-  ['Hardness','brushHardness',.01,.99,.01,()=>brushHardness,v=>brushHardness=v],
-  ['Strength','brushStrength',.05,1,.01,()=>brushStrength,v=>brushStrength=v]
- ];
- for(const [name,key,min,max,step,get,set] of brushFields){
-  root.append(numericControl({name,value:get(),min,max,step,defaultValue:BRUSH_DEFAULTS[key],onChange:set}));
+ for(const [name,key,min,max,step,get,set] of [
+   ['Radius','brushRadius',.015,.6,.005,()=>brushRadius,v=>brushRadius=v],
+   ['Hardness','brushHardness',.01,.99,.01,()=>brushHardness,v=>brushHardness=v],
+   ['Strength','brushStrength',.05,1,.01,()=>brushStrength,v=>brushStrength=v]
+ ]){
+   root.append(numericControl({name,value:get(),min,max,step,defaultValue:BRUSH_DEFAULTS[key],onChange:set}));
  }
+}
+function normalizeLayerMasksIfMissing(layer){
+ if(!Array.isArray(layer.masks))normalizeLayerMasks(layer,true);
 }
 function addLayer(template={}){
   const layer=newLayer(template);
   const i=layers.findIndex(l=>l.id===selected);
-  layers.splice(i+1,0,layer);selected=layer.id;
+  layers.splice(i+1,0,layer);selected=layer.id;selectedMaskId=layer.masks[0]?.id;
   mark(Math.max(0,i+1));renderLayers();renderProperties();
 }
 function moveLayer(amount){
@@ -313,7 +415,7 @@ $('btn-remove-layer').onclick=()=>{
   if(layers.length<=1){status('At least one layer is required');return;}
   const i=layers.findIndex(l=>l.id===selected);
   if(i<0)return;
-  layers.splice(i,1);selected=layers[Math.min(i,layers.length-1)].id;
+  layers.splice(i,1);selected=layers[Math.min(i,layers.length-1)].id;selectedMaskId=currentLayer()?.masks?.[0]?.id;
   mark(i);renderLayers();renderProperties();
 };
 $('btn-layer-up').onclick=()=>moveLayer(1);
@@ -478,8 +580,9 @@ $('project-file').onchange=async e=>{
     const result=prepareScene(new THREE.Mesh(g,new THREE.MeshStandardMaterial()),data.name);
     gpu.setGeometry(result);
     layers=data.layers.map(l=>newLayer(l));
+    nextMaskId=Math.max(nextMaskId,...layers.flatMap(l=>l.masks.map(m=>Number(m.id.split('-').at(-1))||0)))+1;
     nextId=Math.max(nextId,...layers.map(l=>Number(l.id.split('-').at(-1))||0))+1;
-    selected=layers.at(-1)?.id;
+    selected=layers.at(-1)?.id;selectedMaskId=layers.at(-1)?.masks?.[0]?.id;
     gpu.layers=layers;
     gpu.clearLayerImages();
     for(const layer of layers)if(layer.imageData)await gpu.setLayerImage(layer);
