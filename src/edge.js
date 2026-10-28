@@ -115,7 +115,7 @@ export function buildEdgeNeighborhood(geometry,{maxDistance=.32,candidates=EDGE_
     const signed=classifyEdge(a.n,b.opposite,a.a,b.n);
     if(Math.abs(signed)<.5)continue;
     const box=new THREE.Box3().setFromPoints([a.a,a.b]);
-    segments.push({a:a.a,b:a.b,angle:signed,box,triangles:[a.t,b.t]});
+    segments.push({a:a.a,b:a.b,angle:signed,box,triangles:[a.t,b.t],meshId:mesh?mesh.getX(a.t*3):0});
   }
   const bounds=geometry.boundingBox||new THREE.Box3().setFromBufferAttribute(pos);
   const cell=Math.max(.14,maxDistance*1.4);
@@ -151,8 +151,8 @@ export function buildEdgeNeighborhood(geometry,{maxDistance=.32,candidates=EDGE_
     // source triangle's own feature edges to avoid losing short edge details.
     const sorted=[...nearby].map(index=>{
       const seg=segments[index],distance=gap(box,seg.box);
-      return {index,distance,own:seg.triangles.includes(t)};
-    }).filter(x=>x.own||x.distance<=maxDistance+1e-4)
+      return {index,distance,own:seg.triangles.includes(t),sameMesh:seg.meshId===(mesh?mesh.getX(t*3):0)};
+    }).filter(x=>x.sameMesh&&(x.own||x.distance<=maxDistance+1e-4))
       .sort((a,b)=>(Number(b.own)-Number(a.own))||a.distance-b.distance);
     if(sorted.length>candidates)overflow++;
     maxFound=Math.max(maxFound,sorted.length);

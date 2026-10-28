@@ -343,7 +343,7 @@ export class PeentGPU {
       const u=this.maskBlendMaterial.uniforms;
       u.uPrevious.value=previous;
       u.uEffect.value=t;
-      u.uMode.value=i===0?0:['replace','multiply','add','subtract','max','min'].indexOf(effect.combine||'multiply');
+      u.uMode.value=i===0?1:['replace','multiply','add','subtract','max','min'].indexOf(effect.combine||'multiply');
       u.uMode.value=Math.max(0,u.uMode.value);
       u.uOpacity.value=effect.opacity??1;
       const dst=i%2===(enabled.length-1)%2?out:this.maskScratch;

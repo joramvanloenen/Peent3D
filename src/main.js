@@ -99,7 +99,10 @@ function newLayer(partial={}){
   seed:Math.random()*100,...partial
  };
  if(Array.isArray(partial.masks))normalizeLayerMasks(layer);
- else layer.masks=[createMaskEntry(mask,partial,false)];
+ else {
+   const maskParams={...partial};delete maskParams.opacity;
+   layer.masks=[createMaskEntry(mask,maskParams,!!partial.id&&partial.id.startsWith('layer-')&&partial.masks===undefined)];
+ }
  return layer;
 }
 let layers=[newLayer(presets[0]),newLayer(presets[1]),newLayer(presets[2]),newLayer(presets[3])];
