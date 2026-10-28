@@ -3,6 +3,8 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {buildBVH} from './geometry.js';
 import {buildEdgeNeighborhood} from './edge.js';
 import {buildRunoffAtlas} from './runoff.js';
+import {buildUVSeamAtlas} from './seams.js';
+import seamStitchFrag from './shaders/seam-stitch.frag.glsl?raw';
 import maskBlendFrag from './shaders/mask-blend.frag.glsl?raw';
 import uvVert from './shaders/uv.vert.glsl?raw';
 import uvFrag from './shaders/uv.frag.glsl?raw';
@@ -76,6 +78,7 @@ export class PeentGPU {
     this.effectMasks=new Map();this.dirtyEffects=new Set();this.edgeMaps=new Map();this.imageTextures=new Map();
     this.whiteTexture=new THREE.DataTexture(new Uint8Array([255,255,255,255]),1,1,THREE.RGBAFormat);this.whiteTexture.needsUpdate=true;
     this.dirtyFrom=0;
+    this.seamFixEnabled=true;this.seamFixWidth=3.5;
     this.dirtyChannels=new Set(CHANNELS);
     this.dirtySmart=new Set();
     this.interactive=false;
@@ -109,9 +112,10 @@ export class PeentGPU {
     if(this.mesh){this.scene.remove(this.mesh);this.mesh.geometry.dispose();}
     if(this.uvMesh)this.uvScene.remove(this.uvMesh);
     this.bvh?.dispose();
-    this.features?.dispose();this.runoff?.dispose();
+    this.features?.dispose();this.runoff?.dispose();this.uvSeams?.dispose();
     this.features=buildEdgeNeighborhood(result.geometry);
     this.runoff=buildRunoffAtlas(result.geometry);
+    this.uvSeams=buildUVSeamAtlas(result.geometry);
     const geometry=result.geometry;
     if(!geometry.getAttribute('aTriangleId')){
       const data=new Float32Array(geometry.getAttribute('position').count);
@@ -126,6 +130,8 @@ export class PeentGPU {
     for(const rt of this.smartMasks.values())rt.dispose();this.smartMasks.clear();
     for(const rt of this.effectMasks.values())rt.dispose();this.effectMasks.clear();this.dirtyEffects.clear();
     this.maskScratch?.dispose();this.maskScratch=null;
+    this.seamStitchMaterial?.dispose();this.seamStitchMaterial=null;
+    this.seamCopyMaterial?.dispose();this.seamCopyMaterial=null;
     this.normalResult?.dispose();this.normalResult=null;
     for(const rt of this.paintMasks.values())rt.dispose();
     this.paintMasks.clear();
@@ -323,6 +329,37 @@ export class PeentGPU {
     this.dirtyEffects.delete(key);
     return rt.texture;
   }
+  _stitchSmartMask(out,width){
+    if(!this.seamFixEnabled||!this.uvSeams?.stats.directionalLinks)return;
+    if(!this.seamStitchMaterial){
+      this.seamStitchMaterial=shader(quadVert,seamStitchFrag,{
+        uSource:U(out.texture),uPosition:U(this.maps.position.texture),
+        uTriangleIndex:U(this.maps.triangleIndex.texture),
+        uUVSeams:U(this.uvSeams.texture),
+        uAtlasWidth:U(this.uvSeams.width),
+        uAtlasStride:U(this.uvSeams.stride),
+        uResolution:U(width),uSeamPixels:U(this.seamFixWidth)
+      });
+      this.seamCopyMaterial=shader(quadVert,copyFrag,{
+        uTexture:U(this.maskScratch.texture),uMode:U(0),
+        uMin:U(new THREE.Vector3()),uSize:U(new THREE.Vector3(1,1,1))
+      });
+    }
+    const u=this.seamStitchMaterial.uniforms;
+    u.uSource.value=out.texture;
+    u.uPosition.value=this.maps.position.texture;
+    u.uTriangleIndex.value=this.maps.triangleIndex.texture;
+    u.uUVSeams.value=this.uvSeams.texture;
+    u.uAtlasWidth.value=this.uvSeams.width;
+    u.uAtlasStride.value=this.uvSeams.stride;
+    u.uResolution.value=width;
+    u.uSeamPixels.value=this.seamFixWidth;
+    // The first pass never samples its own render target. The second copies
+    // the corrected mask back into the per-layer cache, keeping scratch reuse.
+    this._draw(this.seamStitchMaterial,this.maskScratch);
+    this.seamCopyMaterial.uniforms.uTexture.value=this.maskScratch.texture;
+    this._draw(this.seamCopyMaterial,out);
+  }
   _renderSmartMask(layer,bounds){
     // Backward-compatible fallback for projects predating stacked effects.
     const effects=layer.masks||[layer];
@@ -364,6 +401,7 @@ export class PeentGPU {
       this._draw(this.maskBlendMaterial,dst);
       previous=dst.texture;
     }
+    if(enabled.some(effect=>effect.mask!==0))this._stitchSmartMask(out,width);
     out.texture.magFilter=THREE.LinearFilter;out.texture.minFilter=THREE.LinearFilter;
     this.dirtySmart.delete(layer.id);
     return out;
@@ -664,7 +702,8 @@ export class PeentGPU {
   dispose(){
     this._running=false;this._resizer.disconnect();
     disposeTargets(this.maps);disposeTargets(this.composites);disposeTargets(this.padded);
-    this.features?.dispose();this.runoff?.dispose();this.uvBakeMaterial?.dispose();
+    this.features?.dispose();this.runoff?.dispose();this.uvSeams?.dispose();this.uvBakeMaterial?.dispose();
+    this.seamStitchMaterial?.dispose();this.seamCopyMaterial?.dispose();
     for(const rt of this.edgeMaps.values())if(rt!==this.maps.edges)rt.dispose();this.edgeMaps.clear();
     for(const rt of this.effectMasks.values())rt.dispose();this.effectMasks.clear();
     this.maskScratch?.dispose();this.maskBlendMaterial?.dispose();
