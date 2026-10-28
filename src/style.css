@@ -163,3 +163,9 @@ input[type=range]{cursor:pointer}
  .preset-detail-thumb{height:110px}.preset-save-form{flex-wrap:wrap;padding:10px}
  .preset-save-trigger{font-size:11px;padding:8px}.preset-footer{padding:9px 12px}
 }
+
+/* Seam correction lives directly with the smart-mask stack controls. */
+.seam-fix-row{display:flex;align-items:center;gap:9px;background:#302c29;border:1px solid #524235;
+ padding:9px 10px;margin:9px 0 7px;border-radius:6px}
+.seam-fix-row input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px;flex:none;margin:0}
+.seam-fix-row label{color:#e7d4c5;font-size:11px;line-height:1.35;cursor:pointer}
