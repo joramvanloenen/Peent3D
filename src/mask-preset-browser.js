@@ -36,7 +36,23 @@ function sampleMask(e,x,y){
  let v=1;
  switch(e.mask){
   case 0:v=1;break;
-  case 1:v=convex* (.68+.32*n);break;
+  case 1:{
+   // Approximate the production shader's SOFT distance + SOFT grunge first,
+   // then apply contrast once below. The preset card is illustrative only.
+   const softness=clamp(e.softness??.35);
+   const focused=bevel;
+   const broad=1-smooth(0,Math.max(.055,(e.edgeDistance||.04)*3),outer);
+   const wear=(focused*(1-softness)+broad*softness)*smooth((e.angleThreshold||20)/160,(e.angleThreshold||20)/160+.35,.73);
+   const radius=.38-.30*clamp(e.breakupHardness??.55);
+   const softNoise=smooth(.5-radius,.5+radius,n);
+   const centre=clamp(e.breakupPosition??.53);
+   const halfWidth=Math.max(.01,Math.min(2,e.breakupWidth??.60))*.5;
+   const lo=centre-halfWidth,hi=centre+halfWidth;
+   const feather=Math.min(.085,(hi-lo)*.22);
+   const band=smooth(lo,lo+feather,wear)*(1-smooth(hi-feather,hi,wear));
+   v=wear*(1-clamp(e.breakup??0)*band*(1-softNoise));
+   break;
+  }
   case 2:v=(1-smooth(.01,.095,Math.abs(x-.48)))*(.4+.5*gn);break;
   case 3:v=1-smooth(.04,.23,outer);break;
   case 4:v=1-y;break;
@@ -53,7 +69,8 @@ function sampleMask(e,x,y){
  }
  const contrast=Number.isFinite(e.contrast)?e.contrast:1;
  v=clamp((v-.5)*contrast+.5);
- const breakup=e.breakup||0;
+ // Non-edge generators retain the previous preview pipeline.
+ const breakup=e.mask===1?0:(e.breakup||0);
  if(breakup>0)v*=1-breakup*clamp(1-n);
  if(e.maskInvert)v=1-v;
  return clamp(v);
