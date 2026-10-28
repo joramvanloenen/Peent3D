@@ -2,11 +2,14 @@
 
 **Peent3D** is an early-stage, GPU-based texture authoring application for **Windows**, designed for **low-poly meshes**. It runs as an Electron desktop application with a WebGL2 GPU backend, Three.js PBR preview, reusable UV-space mesh data, and a layer-based material editor.
 
-> **Status: v0.3.1 experimental preview, validated with Windows WebGL2 GUI smoke tests.** This repository is a substantial initial implementation, **not** feature-parity with Adobe Substance 3D Painter. Test the baker on your own meshes before depending on exported data. No commercial licensing or compatibility with Adobe is implied.
+> **Status: v0.3.2 experimental preview, validated with Windows WebGL2 GUI smoke tests.** This repository is a substantial initial implementation, **not** feature-parity with Adobe Substance 3D Painter. Test the baker on your own meshes before depending on exported data. No commercial licensing or compatibility with Adobe is implied.
 
 ## What is implemented
 
 - Desktop project built for Windows x64 (Electron).
+- **Material browser and saved material library**: access via **Materials** in the top bar. Search built-in material starters and your own saved reusable materials, with sphere preview thumbnails and layer/mask details. **Save selected layer** or **Save entire stack** (including all procedural mask settings, PBR values and embedded image fills). **Use material** replaces the active material stack; **Add material layers** appends. Custom materials persist in Electron's application-data directory across restarts and portable EXE updates; browser builds fall back to localStorage. Mesh-specific paint strokes remain in project files.
+- **Default cube and 2048 px**: opens a clean cube with a non-overlapping 3×2 UV atlas, with full-resolution mesh maps baked at 2048 px by default (Windows GUI smoke test uses 256 px for speed). Existing project files keep their stored resolution.
+- **Mesh map bake dialog**: click **Mesh maps** in the top bar to view/edit resolution, ray samples, ray distance and rebake; the inspector now focuses on materials and mask layers. The mesh is baked on initial load/import and remains reusable through all material changes without further rebaking.
 - Import OBJ, GLB and embedded-resource GLTF. Multiple meshes are merged into one editable texture set.
 - Interactive PBR viewport with orbit, zoom, model framing, 3D painting, and 2D texture-map inspection.
 - GPU raster baking of **object-space position**, **world/object-space normals**, **curvature estimate**, **mesh/material ID**, **elevation**, **flat tangent normals**, and **surface coverage**.
@@ -93,6 +96,8 @@ src/edge.js                     Welded 3D topology, signed dihedral features and
 src/curvature.js                Cotangent discrete signed mean curvature, robust normalization and edge-aware multi-scale smoothing
 src/runoff.js                   Topology-seeded surface particle advection, upper-ledge emitters and continuous downhill paths
 src/mask-presets.js             21 curated procedural mask recipes plus validated custom preset storage
+src/material-library.js         Versioned saved materials, editable stack serialization and validation
+src/material-browser.js         Persistent material gallery, sphere previews, filtering and apply/save/delete
 src/mask-preset-browser.js      Searchable preview gallery, category filters and apply/save/delete interactions
 src/gpu.js                      GPU raster passes, ray baking, layer cache, painting, export
 src/shaders/uv.*                UV-space raster maps
@@ -181,3 +186,9 @@ This approximates particle advection and surface adhesion for static texture aut
 Peent3D v0.3.1 automatically stitches procedural smart masks along UV splits that represent the **same connected geometric edge**. This is not simple UV-space blur: the CPU builds a correspondence atlas between triangles welded by their 3D coordinates, within each mesh, and uses the opposite island's UV edge direction and inward offset to sample valid texels on both sides. After all the selected layer's smart masks are combined, a GPU pass blends the two corresponding mask values near the seam; the mask result is copied back to its per-layer cache. The corrected coverage is then used for the material channels and smart-mask preview, with the correction following whichever generator, angle threshold, breakup, and blend mode you selected.
 
 The pass is on by default. Within the material's Smart mask stack inspector, **Fix UV island seams** toggles it; **Seam blend width (px)** sets the narrow transition band, with an individual reset button and default of 3.5 px. Adjustments only recomposite affected cached smart masks, not the geometry-based generators. Ordinary continuous UV edges are ignored. Physically separate meshes remain separate even when they occupy the same location; non-manifold 3D edges are excluded. Limitations: this does not repair overlapping/stacked UV islands or missing UV topology, nor does it replace padding of final exported texture channels.
+
+## Reusable materials and mesh-map setup
+
+The new **Materials** button opens a searchable gallery with built-in starters and saved recipes. Save a single edited material layer or an entire multi-layer material stack. Both options retain PBR parameters, individual smart-mask settings, blending, order and embedded image fills. Applied materials create **new editable layer and mask IDs**, so adjusting a reused material never alters the saved recipe. The Electron version stores these recipes atomically in its persistent app-data folder, independent of the executable's location; no login or cloud sync is required. Use **Delete saved material** to remove a custom entry. Paint-mask strokes are UV/mesh dependent and are intentionally kept only in project files.
+
+New documents open on an **unwrapped cube**, and the texture resolution defaults to **2048 × 2048**. The ray and resolution controls live in the **Mesh maps** popup, accessible from the top toolbar. Initial mesh import and project load still perform the necessary bake once. Click **Rebake mesh maps** only when you change geometric bake settings; switching, saving, or loading material recipes does not rebake. Opening old projects still respects their previously saved resolution and mesh geometry.

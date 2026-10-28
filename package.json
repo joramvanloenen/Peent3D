@@ -1,6 +1,6 @@
 {
   "name": "peent3d",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "GPU-driven low-poly material painter and mesh map baker for Windows",
   "type": "module",
   "main": "electron/main.cjs",
@@ -9,7 +9,7 @@
     "web": "vite --host 127.0.0.1",
     "build": "vite build",
     "dist:win": "npm run build && electron-builder --win nsis portable",
-    "check": "node --check src/main.js && node --check src/gpu.js && node --check src/geometry.js && node --check src/edge.js && node --check src/curvature.js && node --check src/runoff.js && node --check src/seams.js && node --check src/mask-presets.js && node --check src/mask-preset-browser.js && node --check electron/main.cjs && node --check electron/preload.cjs",
+    "check": "node --check src/main.js && node --check src/gpu.js && node --check src/geometry.js && node --check src/edge.js && node --check src/curvature.js && node --check src/runoff.js && node --check src/seams.js && node --check src/material-library.js && node --check src/material-browser.js && node --check src/mask-presets.js && node --check src/mask-preset-browser.js && node --check electron/main.cjs && node --check electron/preload.cjs",
     "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
