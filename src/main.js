@@ -696,6 +696,7 @@ $('project-file').onchange=async e=>{
     gpu.sampleCount=data.samples;
     gpu.rayDistance=data.distance;
     await gpu.bake(status);
+    $('map-bake-status').textContent='✓ Mesh maps baked at '+gpu.size+'px · '+gpu.sampleCount+' ray samples';
     await gpu.restorePaintMasks(data.paintMasks);
     $('mesh-info').textContent=result.name+' · '+result.triangleCount+' tris';
     renderLayers();renderProperties();refreshPreview();status('Project loaded');
@@ -715,19 +716,6 @@ renderLayers();renderProperties();refreshPreview();
 if(new URLSearchParams(location.search).get('smoke')==='1'){
   $('resolution').value='256';
   $('samples').value='8';
-}
-function createValidationCube(){
- const geometry=new THREE.BoxGeometry(1,1,1).toNonIndexed();
- // Unique 3x2 face atlas. BoxGeometry's overlapping face UVs invalidate geometry-map baking!
- const uv=geometry.getAttribute('uv');
- for(let face=0;face<6;face++){
-  for(let i=face*6;i<face*6+6;i++){
-   const x=face%3,y=Math.floor(face/3);
-   uv.setXY(i,(x+.06+uv.getX(i)*.88)/3,(y+.06+uv.getY(i)*.88)/2);
-  }
- }
- uv.needsUpdate=true;
- return prepareScene(new THREE.Mesh(geometry,new THREE.MeshStandardMaterial()),'Smoke UV-unwrapped cube');
 }
 gpu.setGeometry(createDemoMesh());
 $('mesh-info').textContent=gpu.model.name+' · '+gpu.model.triangleCount.toLocaleString()+' tris';
