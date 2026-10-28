@@ -12,6 +12,9 @@ uniform float uSeed;
 uniform float uScale;
 uniform float uContrast;
 uniform float uBreakup;
+uniform float uBreakupHardness;
+uniform float uBreakupPosition;
+uniform float uBreakupWidth;
 uniform float uEdgeDistance;
 uniform float uAngleThreshold;
 uniform float uSoftness;
@@ -130,25 +133,49 @@ float verticalRunoff(vec3 p,vec3 n){
  return (wx*dripPlane(p.zy,uSeed+5.)+wz*dripPlane(p.xy,uSeed+11.))*
         smoothstep(.12,.60,1.-abs(n.y));
 }
+// Keep the fully worn core intact; only chip the partially worn transition.
+// Position/width are measured in mask intensity (0=unworn, 1=fully worn).
+float transitionBreakup(float coverage,float grunge){
+ float halfWidth=clamp(uBreakupWidth,.02,.95)*.5;
+ float lo=clamp(uBreakupPosition-halfWidth,.001,.94);
+ float hi=clamp(uBreakupPosition+halfWidth,lo+.02,.975);
+ float feather=min(.085,(hi-lo)*.22);
+ float band=smoothstep(lo,lo+feather,coverage)*
+           (1.-smoothstep(hi-feather,hi,coverage));
+ // Hardness controls grunge's contrast/threshold, independent from intensity.
+ float softness=mix(.28,.012,clamp(uBreakupHardness,0.,1.));
+ float breakupNoise=smoothstep(.5-softness,.5+softness,grunge);
+ return mix(coverage,coverage*breakupNoise,uBreakup*band);
+}
 void main(){
  vec4 pos=texture(uPosition,vUv);
  if(pos.a<.5){frag=vec4(0.);return;}
+ if(uMask==0){frag=vec4(1.);return;} // Full fills do not need 3D noise or ray data.
  vec3 p=pos.xyz;
  vec3 n=normalize(texture(uNormal,vUv).rgb*2.-1.);
- vec4 edges=texture(uEdges,vUv);
- float ao=texture(uAO,vUv).r;
- float cavity=1.-ao;
- float height=clamp((p.y-uMin.y)/max(uSize.y,.0001),0.,1.);
- float fine=noise3(p*max(.05,uScale)*max(.2,uBreakupScale)*6.+uSeed,n);
- float broad=noise3(p*max(.05,uScale)*1.2+uSeed,n);
- float convex=softEdge(edges.r,uEdgeDistance,uSoftness)*
-              smoothstep(uAngleThreshold,uAngleThreshold+12.,edges.b);
- float concave=softEdge(edges.g,uEdgeDistance*1.5,uSoftness)*
-               smoothstep(uAngleThreshold,uAngleThreshold+12.,edges.a);
- float vertical=verticalRunoff(p,n);
  float result=1.;
- if(uMask==1)result=convex*mix(1.,ao,uAOProtect);
- else if(uMask==2)result=concave;
+ float fine=0.,broad=0.,convex=0.,concave=0.,vertical=0.,cavity=0.,height=0.;
+ // Compute only the features actually requested by this generator.
+ bool requiresEdges=(uMask==1||uMask==2||uMask==9||uMask==10||uMask==11);
+ bool requiresAO=(uMask==1||uMask==3||uMask==9||uMask==10||uMask==11);
+ bool requiresHeight=(uMask==4||uMask==5||uMask==10);
+ bool requiresNoise=(uMask==7||uMask==10||uMask==11||uBreakup>0.);
+ if(requiresEdges){
+   vec4 edges=texture(uEdges,vUv);
+   if(uMask==1)convex=softEdge(edges.r,uEdgeDistance,uSoftness)*smoothstep(uAngleThreshold,uAngleThreshold+12.,edges.b);
+   if(uMask!=1)concave=softEdge(edges.g,uEdgeDistance*1.5,uSoftness)*smoothstep(uAngleThreshold,uAngleThreshold+12.,edges.a);
+ }
+ if(requiresAO)cavity=1.-texture(uAO,vUv).r;
+ if(requiresHeight)height=clamp((p.y-uMin.y)/max(uSize.y,.0001),0.,1.);
+ if(requiresNoise){
+   fine=noise3(p*max(.05,uScale)*max(.2,uBreakupScale)*6.+uSeed,n);
+   if(uMask==7||uMask==10||uMask==11)broad=noise3(p*max(.05,uScale)*1.2+uSeed,n);
+ }
+ if(uMask==8||uMask==9||uMask==10)vertical=verticalRunoff(p,n);
+ if(uMask==1){
+   float ao=1.-cavity;
+   result=convex*mix(1.,ao,uAOProtect);
+ }else if(uMask==2)result=concave;
  else if(uMask==3)result=clamp(pow(cavity,.65)*1.25,0.,1.);
  else if(uMask==4)result=smoothstep(.2,.85,height);
  else if(uMask==5)result=1.-smoothstep(.12,.73,height);
@@ -161,20 +188,20 @@ void main(){
    float pinholes=noise3(p*max(.05,uScale)*11.0+uSeed+4.1,n);
    float oxideField=broad*.45+fine*.35+pinholes*.20;
    float corrosion=smoothstep(.51,.70,oxideField+pockets*.12);
-   // Mostly local corrosion; exposed flat surfaces retain scattered fine pitting.
    result=clamp(corrosion*mix(.17,.43,uCavity)+pockets*(.52+.28*corrosion)+vertical*.22,0.,1.);
  }else if(uMask==11){
    float up=pow(clamp(n.y,0.,1.),mix(5.,.45,uTopBias));
    float trapped=clamp(cavity*.60+concave*.28,0.,1.);
    result=clamp(up*(.65+.35*broad)+trapped*uCavity,0.,1.);
  }else if(uMask==12)result=scratches3(p,n);
- if(uMask!=0){
-   if(uMask<=7 || uMask==10 || uMask==11){
-     float grunge=smoothstep(.1,.85,fine);
-     result*=mix(1.,grunge,uBreakup);
+ result=clamp((result-.5)*uContrast+.5,0.,1.);
+ if(uBreakup>0.){
+   if(uMask==1)result=transitionBreakup(result,fine);
+   else if(uMask<=7||uMask==10||uMask==11){
+     float softness=mix(.28,.012,clamp(uBreakupHardness,0.,1.));
+     result*=mix(1.,smoothstep(.5-softness,.5+softness,fine),uBreakup);
    }
-   result=clamp((result-.5)*uContrast+.5,0.,1.);
-   if(uInvert==1)result=1.-result;
  }
+ if(uInvert==1)result=1.-result;
  frag=vec4(vec3(clamp(result,0.,1.)),1.);
 }
