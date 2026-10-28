@@ -6,33 +6,75 @@ import {createDemoMesh,loadMesh,prepareScene} from './geometry.js';
 
 const $=id=>document.getElementById(id);
 const masks=[
-  ['None / full surface',0],['Convex edges',1],['Concave cavities',2],
-  ['Ambient occlusion',3],['Top facing height',4],['Bottom accumulation',5],
-  ['Thin parts',6],['Procedural noise',7]
+ ['Full surface',0],['Edge wear · convex',1],['Cavities · concave',2],
+ ['Ambient occlusion',3],['Upper height',4],['Lower height',5],
+ ['Thin parts',6],['Organic grunge',7],['Gravity streaks',8],
+ ['Leaks / drips',9],['Rust / oxidation',10],['Settled dust',11],
+ ['Natural scratches',12]
 ];
+const maskDescription={
+ 0:'Unmasked material fill. Paint black to hide or white to reveal.',
+ 1:'Convex shared mesh edges: real face angles and model-space edge distance. No UV-space smearing.',
+ 2:'Concave edges, from the signed angle between adjoining polygon faces.',
+ 3:'Ray-baked ambient occlusion collects dirt inside occluded recesses.',
+ 4:'Soft height gradient toward the top of the asset.',
+ 5:'Soft height gradient toward the bottom of the asset.',
+ 6:'Inward ray thickness approximation highlights thin parts.',
+ 7:'Layered 3D coherent noise suitable for organic wear.',
+ 8:'Thin gravity-aligned streaks on vertical surfaces, with variable length and spacing.',
+ 9:'Localized drips guided by cavity/edge information and gravity.',
+ 10:'Patchy, cavity-biased oxidation with secondary leaking and micro-corrosion.',
+ 11:'Soft upward-facing deposition, reinforced around occluded corners.',
+ 12:'Sparse, directional, variable-length micro-scratches projected in object space.'
+};
+const PARAM_DEFAULTS=Object.freeze({
+ roughness:.58,metallic:0,height:0,opacity:1,scale:3,variation:.08,
+ contrast:1.5,breakup:.12,breakupScale:1,edgeDistance:.038,angleThreshold:22,
+ softness:.36,density:.38,length:.85,width:.035,direction:25,
+ gravity:1,cavity:.65,aoProtect:.35,topBias:.74,seed:0
+});
+const GENERATOR_DEFAULTS={
+ 0:{contrast:1,breakup:0},
+ 1:{edgeDistance:.038,angleThreshold:20,softness:.32,contrast:1.6,breakup:.12,breakupScale:1.8,aoProtect:.30,scale:4.4},
+ 2:{edgeDistance:.055,angleThreshold:18,softness:.5,contrast:1.4,breakup:.18,scale:3},
+ 3:{contrast:1.1,breakup:.12,scale:2.7},
+ 4:{contrast:1.1,breakup:.12,scale:2},
+ 5:{contrast:1.1,breakup:.12,scale:2},
+ 6:{contrast:1.2,breakup:.12,scale:3},
+ 7:{contrast:1.8,breakup:0,scale:2.1},
+ 8:{contrast:1.15,breakup:0,scale:2.2,density:.32,length:1.4,width:.08,direction:0},
+ 9:{contrast:1.2,breakup:0,scale:1.8,density:.27,length:1.2,width:.055,direction:0,cavity:.65},
+ 10:{contrast:1.45,breakup:.30,breakupScale:1.8,scale:2.9,density:.30,length:1.1,width:.07,cavity:.8},
+ 11:{contrast:1.10,breakup:.14,scale:2.1,topBias:.74,cavity:.32},
+ 12:{contrast:1.0,breakup:0,scale:3,density:.32,length:.9,width:.035,direction:26}
+};
 const presets=[
-  {name:'Brushed alloy',color:'#929aa0',roughness:.32,metallic:1,mask:0,projection:'triplanar',scale:4,variation:.28},
-  {name:'Painted enamel',color:'#4e8885',roughness:.44,metallic:0,mask:0,projection:'triplanar',scale:2.5,variation:.20},
-  {name:'Edge wear',color:'#c7c9c6',roughness:.24,metallic:1,mask:1,projection:'triplanar',scale:8,variation:.35},
-  {name:'Cavity dirt',color:'#302d29',roughness:.9,metallic:0,mask:3,projection:'triplanar',scale:6,variation:.45},
-  {name:'Oxidation',color:'#74472e',roughness:.85,metallic:0,mask:7,projection:'triplanar',scale:5,variation:.5}
+  {name:'Base iron',color:'#777b7e',roughness:.47,metallic:.93,mask:0,projection:'triplanar',scale:3,variation:.05},
+  {name:'Painted coating',color:'#677477',roughness:.53,metallic:.12,mask:0,projection:'triplanar',scale:2,variation:.015},
+  {name:'Fine edge wear',color:'#b0a9a1',roughness:.31,metallic:1,mask:1,projection:'triplanar',variation:.04,opacity:.58,...GENERATOR_DEFAULTS[1]},
+  {name:'Cavity deposits',color:'#41372e',roughness:.82,metallic:0,mask:3,projection:'triplanar',variation:.04,opacity:.25,...GENERATOR_DEFAULTS[3]},
+  {name:'Iron oxidation',color:'#804834',roughness:.86,metallic:.12,mask:10,projection:'triplanar',variation:.14,opacity:.58,...GENERATOR_DEFAULTS[10]}
 ];
 let nextId=1;
 function newLayer(partial={}){
-  return Object.assign({
-    id:'layer-'+(nextId++),name:'New material',
-    color:'#8c929b',roughness:.58,metallic:0,height:0,
-    opacity:1,scale:3,contrast:2,variation:.26,seed:Math.random()*100,
-    projection:'triplanar',mask:0,breakup:.25,maskInvert:false,imageData:null,visible:true
-  },partial);
+ const mask=Number(partial.mask??0);
+ return {
+  id:'layer-'+nextId++,name:'New material',color:'#888888',
+  ...PARAM_DEFAULTS,...(GENERATOR_DEFAULTS[mask]||{}),
+  projection:'triplanar',mask,maskInvert:false,imageData:null,visible:true,
+  seed:Math.random()*100,...partial
+ };
 }
 let layers=[newLayer(presets[0]),newLayer(presets[1]),newLayer(presets[2]),newLayer(presets[3])];
 let selected=layers.at(-1)?.id;
 let tool='orbit',uvTab=false,painting=false,lastPaintPoint=null;
 let brushRadius=.17,brushHardness=.55,brushStrength=.72;
+const BRUSH_DEFAULTS={brushRadius:.17,brushHardness:.55,brushStrength:.72};
 let scheduled=false,busy=false;
 let imageTarget=null;
-const imageFile=document.createElement('input');imageFile.type='file';imageFile.accept='image/png,image/jpeg,image/webp';imageFile.hidden=true;document.body.append(imageFile);
+const imageFile=document.createElement('input');
+imageFile.type='file';imageFile.accept='image/png,image/jpeg,image/webp';imageFile.hidden=true;
+document.body.append(imageFile);
 imageFile.addEventListener('change',async()=>{
  const file=imageFile.files?.[0];imageFile.value='';
  const layer=layers.find(l=>l.id===imageTarget);
@@ -45,126 +87,170 @@ imageFile.addEventListener('change',async()=>{
  }catch(error){status('Image import failed: '+error.message);}
 });
 let gpu;
-try {
-  gpu=new PeentGPU($('viewport'));
-  if(!gpu.renderer.capabilities.isWebGL2)throw Error('WebGL2 is required for GPU mesh-map baking.');
-  $('gpu-info').textContent='GPU · '+gpu.gpuName;
-} catch(error) {
-  $('viewport').textContent='GPU initialization failed: '+error.message;
-  throw error;
-}
+try{
+ gpu=new PeentGPU($('viewport'));
+ if(!gpu.renderer.capabilities.isWebGL2)throw Error('WebGL2 is required for GPU mesh-map baking.');
+ $('gpu-info').textContent='GPU · '+gpu.gpuName;
+}catch(error){$('viewport').textContent='GPU initialization failed: '+error.message;throw error;}
 gpu.layers=layers;
 function status(message){$('status').textContent=message;}
 function currentLayer(){return layers.find(l=>l.id===selected);}
 function mark(index=0){
-  gpu.markDirty(index);
-  if(!scheduled){
-    scheduled=true;
-    requestAnimationFrame(()=>{scheduled=false;gpu.compose(layers);refreshPreview();});
-  }
+ gpu.markDirty(index);
+ if(!scheduled){
+  scheduled=true;
+  requestAnimationFrame(()=>{scheduled=false;gpu.compose(layers);refreshPreview();});
+ }
 }
-function refreshPreview(){gpu.selectView(uvTab?'uv':'3d',$('channel-view').value);gpu.controls.enabled=tool==='orbit'&&!uvTab;}
+function refreshPreview(){
+ gpu.selectedLayerId=selected;
+ gpu.selectView(uvTab?'uv':'3d',$('channel-view').value);
+ gpu.controls.enabled=tool==='orbit'&&!uvTab;
+}
 function button(text,click,className=''){
-  const b=document.createElement('button');b.textContent=text;
-  if(className)b.className=className;
-  b.addEventListener('click',click);return b;
+ const b=document.createElement('button');b.textContent=text;
+ if(className)b.className=className;
+ b.addEventListener('click',click);return b;
 }
 function renderLayers(){
-  const root=$('layer-list');root.replaceChildren();
-  for(let i=layers.length-1;i>=0;i--){
-    const layer=layers[i];
-    const row=document.createElement('div');
-    row.className='layer'+(layer.id===selected?' selected':'');
-    const eye=button(layer.visible?'◉':'○',e=>{e.stopPropagation();layer.visible=!layer.visible;mark(i);renderLayers();});
-    eye.className='eye';
-    const swatch=document.createElement('span');swatch.className='swatch';swatch.style.background=layer.color;
-    const label=document.createElement('span');label.className='label';label.textContent=layer.name;
-    const kind=document.createElement('span');kind.className='layer-kind';kind.textContent=layer.mask===0?'Fill':'Smart';
-    row.append(eye,swatch,label,kind);
-    row.addEventListener('click',()=>{selected=layer.id;renderLayers();renderProperties();});
-    root.append(row);
-  }
+ const root=$('layer-list');root.replaceChildren();
+ for(let i=layers.length-1;i>=0;i--){
+  const layer=layers[i];
+  const row=document.createElement('div');
+  row.className='layer'+(layer.id===selected?' selected':'');
+  const eye=button(layer.visible?'◉':'○',e=>{e.stopPropagation();layer.visible=!layer.visible;mark(i);renderLayers();});
+  eye.className='eye';
+  const swatch=document.createElement('span');swatch.className='swatch';swatch.style.background=layer.color;
+  const label=document.createElement('span');label.className='label';label.textContent=layer.name;
+  const kind=document.createElement('span');kind.className='layer-kind';kind.textContent=layer.mask===0?'Fill':'Smart';
+  row.append(eye,swatch,label,kind);
+  row.addEventListener('click',()=>{selected=layer.id;gpu.selectedLayerId=selected;renderLayers();renderProperties();refreshPreview();});
+  root.append(row);
+ }
+}
+function numericControl({name,value,min,max,step,defaultValue,onChange}){
+ const wrap=document.createElement('div');wrap.className='number-control';
+ const label=document.createElement('label');label.textContent=name;label.title=name;
+ const slider=document.createElement('input');slider.type='range';slider.min=min;slider.max=max;slider.step=step;
+ slider.title=name;
+ const number=document.createElement('input');number.type='number';number.min=min;number.max=max;number.step=step;
+ number.title='Type an exact value';number.setAttribute('aria-label',name+' numeric value');
+ const reset=button('↺',()=>set(defaultValue),'reset');reset.title='Reset '+name+' to default';reset.setAttribute('aria-label','Reset '+name);
+ const decimals=String(step).includes('.')?String(step).split('.')[1].length:0;
+ const clamp=v=>Math.max(min,Math.min(max,Math.round(v/step)*step));
+ function set(v){
+   const parsed=Number(v);
+   if(!Number.isFinite(parsed)){number.value=String(value);return;}
+   value=clamp(parsed);
+   const display=Number(value.toFixed(Math.min(decimals,6)));
+   slider.value=String(display);number.value=String(display);
+   onChange(display);
+ }
+ slider.value=String(value);number.value=String(value);
+ slider.addEventListener('input',()=>set(slider.value));
+ number.addEventListener('change',()=>set(number.value));
+ number.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();number.blur();}});
+ wrap.append(label,slider,number,reset);
+ return wrap;
 }
 function renderProperties(){
-  const root=$('layer-properties');root.replaceChildren();
-  const layer=currentLayer();
-  if(!layer){root.textContent='Select a layer';return;}
-  function section(text){const e=document.createElement('div');e.className='section-label';e.textContent=text;root.append(e);}
-  function row(name,element,onChange,event='input',suffix=''){
-    const wrapper=document.createElement('div');wrapper.className='row';
-    const label=document.createElement('label');label.textContent=name;
-    wrapper.append(label,element);
-    if(suffix){const out=document.createElement('output');out.textContent=suffix;wrapper.append(out);
-      element.addEventListener('input',()=>out.textContent=String(element.value));}
-    element.addEventListener(event,()=>{
-      onChange(element.value);
-      const idx=layers.indexOf(layer);mark(idx);
-      if(name==='Name'||name==='Color')renderLayers();
-    });
-    root.append(wrapper);
+ const root=$('layer-properties');root.replaceChildren();
+ const layer=currentLayer();
+ if(!layer){root.textContent='Select a layer';return;}
+ function section(text){const el=document.createElement('div');el.className='section-label';el.textContent=text;root.append(el);}
+ function row(name,element,onChange,event='input'){
+  const wrap=document.createElement('div');wrap.className='row';
+  const label=document.createElement('label');label.textContent=name;
+  wrap.append(label,element);
+  element.addEventListener(event,()=>{onChange(element.value);mark(layers.indexOf(layer));if(name==='Name'||name==='Color')renderLayers();});
+  root.append(wrap);
+ }
+ function textInput(name,field){
+  const input=document.createElement('input');input.type='text';input.value=layer[field];
+  row(name,input,v=>layer[field]=v,'change');
+ }
+ function colorInput(){
+  const input=document.createElement('input');input.type='color';input.value=layer.color;
+  row('Color',input,v=>layer.color=v,'input');
+ }
+ function slider(name,field,min,max,step){
+  const value=Number(layer[field]??PARAM_DEFAULTS[field]??0);
+  const resetValue=(GENERATOR_DEFAULTS[layer.mask]||{})[field]??PARAM_DEFAULTS[field]??value;
+  root.append(numericControl({name,value,min,max,step,defaultValue:resetValue,
+   onChange:v=>{layer[field]=v;mark(layers.indexOf(layer));}}));
+ }
+ function dropdown(name,field,options,callback=null){
+  const el=document.createElement('select');
+  for(const [text,value] of options){
+   const opt=document.createElement('option');opt.textContent=text;opt.value=String(value);
+   if(String(layer[field])===String(value))opt.selected=true;
+   el.append(opt);
   }
-  function textInput(name,field){
-    const input=document.createElement('input');input.type='text';input.value=layer[field];
-    row(name,input,value=>layer[field]=value,'change');
+  row(name,el,value=>{
+   layer[field]=typeof layer[field]==='number'?Number(value):typeof layer[field]==='boolean'?value==='true':value;
+   if(callback)callback();
+  },'change');
+ }
+ section('Material');
+ textInput('Name','name');colorInput();
+ slider('Roughness','roughness',0,1,.01);
+ slider('Metallic','metallic',0,1,.01);
+ slider('Relief height','height',-.45,.45,.005);
+ slider('Opacity','opacity',0,1,.01);
+ section('Projection & detail');
+ const imageRow=document.createElement('div');imageRow.className='property-actions';
+ imageRow.append(button(layer.imageData?'Replace image':'Load image',()=>{imageTarget=layer.id;imageFile.click();}),
+   button('Clear image',()=>{layer.imageData=null;gpu.setLayerImage(layer).then(()=>mark(layers.indexOf(layer)));renderProperties();}));
+ root.append(imageRow);
+ dropdown('Projection','projection',[['Triplanar','triplanar'],['UV','uv']]);
+ slider('Pattern scale','scale',.1,20,.1);
+ slider('Variation','variation',0,1,.01);
+ section('Smart mask');
+ dropdown('Generator','mask',masks,()=>{
+  Object.assign(layer,GENERATOR_DEFAULTS[layer.mask]||{});
+  renderProperties();
+ });
+ const description=document.createElement('p');description.className='mask-description';
+ description.textContent=maskDescription[layer.mask]||'';root.append(description);
+ if(layer.mask!==0){
+  slider('Contrast','contrast',.2,8,.05);
+  if([1,2,3,4,5,6,7,10,11].includes(layer.mask)){
+   slider('Grunge breakup','breakup',0,1,.01);
+   slider('Grunge scale','breakupScale',.2,8,.1);
   }
-  function colorInput(){
-    const input=document.createElement('input');input.type='color';input.value=layer.color;
-    row('Color',input,value=>layer.color=value);
+  if([1,2,10].includes(layer.mask)){
+   slider('Edge distance','edgeDistance',.002,.3,.001);
+   slider('Angle threshold','angleThreshold',0,120,1);
+   slider('Edge softness','softness',.01,.95,.01);
   }
-  function slider(name,field,min,max,step){
-    const input=document.createElement('input');input.type='range';
-    Object.assign(input,{min:String(min),max:String(max),step:String(step),value:String(layer[field])});
-    row(name,input,value=>layer[field]=Number(value),'input',String(layer[field]));
+  if(layer.mask===1)slider('AO protection','aoProtect',0,1,.01);
+  if([8,9,10,12].includes(layer.mask)){
+   slider('Density','density',0,1,.01);
+   slider('Length','length',.05,4,.01);
+   slider('Line width','width',.004,.4,.002);
   }
-  function dropdown(name,field,options){
-    const el=document.createElement('select');
-    for(const [text,value] of options){
-      const opt=document.createElement('option');opt.textContent=text;opt.value=String(value);
-      if(String(layer[field])===String(value))opt.selected=true;
-      el.append(opt);
-    }
-    row(name,el,value=>layer[field]=typeof layer[field]==='number'?Number(value):typeof layer[field]==='boolean'?value==='true':value,'change');
-  }
-  section('Material');
-  textInput('Name','name');colorInput();
-  slider('Roughness','roughness',0,1,.01);
-  slider('Metallic','metallic',0,1,.01);
-  slider('Relief height','height',-.45,.45,.005);
-  slider('Opacity','opacity',0,1,.01);
-  section('Projection & detail');
-  const imageRow=document.createElement('div');imageRow.className='row';
-  imageRow.append(button(layer.imageData?'Replace image':'Load image',()=>{imageTarget=layer.id;imageFile.click();}),
-    button('Clear',()=>{layer.imageData=null;gpu.setLayerImage(layer).then(()=>mark(layers.indexOf(layer)));renderProperties();}));
-  root.append(imageRow);
-  dropdown('Projection','projection',[['Triplanar','triplanar'],['UV','uv']]);
-  slider('Pattern scale','scale',.1,20,.1);
-  slider('Variation','variation',0,1,.01);
-  section('Smart mask');
-  dropdown('Mask generator','mask',masks);
-  slider('Mask contrast','contrast',.2,8,.1);
-  slider('Grunge breakup','breakup',0,1,.01);
-  dropdown('Mask invert','maskInvert',[['Normal',false],['Inverted',true]]);
-  const hint=document.createElement('p');hint.className='property-help';
-  hint.textContent='Smart masks use baked AO, curvature, thickness and position maps. Paint/erase modifies this layer’s editable mask in 3D, including across UV seams.';
-  root.append(hint);
-  section('Brush');
-  const maskActions=document.createElement('div');maskActions.className='row';
-  maskActions.append(button('Clear mask',()=>{gpu.fillMask(layer,0);mark(layers.indexOf(layer));}),
-    button('Fill mask',()=>{gpu.fillMask(layer,1);mark(layers.indexOf(layer));}));
-  root.append(maskActions);
-  const controls=[
-    ['Radius',brushRadius,.015,.6,.005,value=>brushRadius=value],
-    ['Hardness',brushHardness,.01,.99,.01,value=>brushHardness=value],
-    ['Strength',brushStrength,.05,1,.01,value=>brushStrength=value]
-  ];
-  for(const [label,initial,min,max,step,store] of controls){
-    const input=document.createElement('input');input.type='range';input.min=min;input.max=max;input.step=step;input.value=initial;
-    const wrap=document.createElement('div');wrap.className='row';
-    const l=document.createElement('label');l.textContent=label;
-    const out=document.createElement('output');out.textContent=Number(initial).toFixed(2);
-    input.addEventListener('input',()=>{store(Number(input.value));out.textContent=Number(input.value).toFixed(2);});
-    wrap.append(l,input,out);root.append(wrap);
-  }
+  if(layer.mask===12)slider('Scratch angle','direction',-180,180,1);
+  if([8,9,10].includes(layer.mask))slider('Gravity','gravity',0,1,.01);
+  if([9,10,11].includes(layer.mask))slider('Cavity influence','cavity',0,1,.01);
+  if(layer.mask===11)slider('Top bias','topBias',0,1,.01);
+  dropdown('Invert','maskInvert',[['Normal',false],['Inverted',true]]);
+ }
+ const hint=document.createElement('p');hint.className='property-help';
+ hint.textContent='Edge distance is measured in normalized model-space units; it stays consistent across UV islands and output resolutions. Paint or erase to adjust any mask.';
+ root.append(hint);
+ section('Brush');
+ const maskActions=document.createElement('div');maskActions.className='property-actions';
+ maskActions.append(button('Clear mask',()=>{gpu.fillMask(layer,0);mark(layers.indexOf(layer));}),
+   button('Fill mask',()=>{gpu.fillMask(layer,1);mark(layers.indexOf(layer));}));
+ root.append(maskActions);
+ const brushFields=[
+  ['Radius','brushRadius',.015,.6,.005,()=>brushRadius,v=>brushRadius=v],
+  ['Hardness','brushHardness',.01,.99,.01,()=>brushHardness,v=>brushHardness=v],
+  ['Strength','brushStrength',.05,1,.01,()=>brushStrength,v=>brushStrength=v]
+ ];
+ for(const [name,key,min,max,step,get,set] of brushFields){
+  root.append(numericControl({name,value:get(),min,max,step,defaultValue:BRUSH_DEFAULTS[key],onChange:set}));
+ }
 }
 function addLayer(template={}){
   const layer=newLayer(template);
