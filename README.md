@@ -2,7 +2,7 @@
 
 **Peent3D** is an early-stage, GPU-based texture authoring application for **Windows**, designed for **low-poly meshes**. It runs as an Electron desktop application with a WebGL2 GPU backend, Three.js PBR preview, reusable UV-space mesh data, and a layer-based material editor.
 
-> **Status: v0.1 experimental / unverified preview.** This repository is a substantial initial implementation, **not** feature-parity with Adobe Substance 3D Painter. Test the baker on your own meshes before depending on exported data. No commercial licensing or compatibility with Adobe is implied.
+> **Status: v0.2 experimental preview, validated with Windows WebGL2 GUI smoke tests.** This repository is a substantial initial implementation, **not** feature-parity with Adobe Substance 3D Painter. Test the baker on your own meshes before depending on exported data. No commercial licensing or compatibility with Adobe is implied.
 
 ## What is implemented
 
@@ -13,10 +13,16 @@
 - GPU fragment-shader BVH ray tracing for ambient occlusion, approximate thickness and bent normals; ray samples and distance configurable.
 - Procedural PBR **fill layers** (base color, roughness, metallic, relief height) with visibility, opacity, reordering and per-channel GPU compositing.
 - UV and **triplanar projection** for image-based color Fill Layers and procedural noise using baked 3D position/normal data.
-- Smart masks: convex edge wear, concave regions, AO dirt, upper/lower gradient, thin areas, and 3D noise. Masks support invert/contrast and procedural grunge breakup.
+- **Topology-based hard-edge baker**: identifies signed convex and concave dihedral angles across shared mesh edges, unaffected by UV seams. Stores **physical edge distance** in normalized model-space units; independent of texture resolution.
+- **12 GPU procedural smart-mask generators**: convex edge wear, concave crevices, AO dirt, height gradients, thin parts, grunge, gravity streaks, leaks/drips, oxidation, deposited dust, and directional natural scratches.
+- **Edge wear controls**: physically meaningful Edge Distance, dihedral Angle Threshold, softness, AO protection, contrast, and restrained breakup. Other generators expose density, line width, length, gravity, top bias, and cavity influence as appropriate.
+- A dedicated **smart-mask render target per layer** caches procedural effects once, reused for all four PBR channels. No more recomputing expensive multi-octave scratches four times.
+- **Preset library** for base iron, paint, fine edge wear, cavity grime, rust, dust, streaks, leaks and scratches.
+- All sliders also provide **direct numeric entry** and a **per-parameter ↺ reset button**. Bake ray-distance supports numeric entry and reset. The inspector fully scrolls.
+- **Charcoal/grey UI with orange accent**, including tool and selection highlights, plus a selected Smart Mask preview.
 - Per-layer editable **GPU paint/erase masks** using 3D position and normal maps; strokes can cross UV seams. Clear/Fill mask actions allow painted reveals and removals.
 - Basic height-to-normal conversion, roughness and metallic maps.
-- PNG exports of material and baked maps in one ZIP archive.
+- PNG exports of material and baked maps **and every enabled layer smart mask** in one ZIP archive.
 - Editable **.peent** project saving including embedded mesh attributes, material layer configuration and painted masks. Projects are gzip-compressed JSON.
 - GitHub Actions Windows workflow that creates NSIS installer and portable EXE as downloadable workflow artifacts.
 
@@ -25,8 +31,9 @@
 - No high-to-low poly projection, cages or skew correction (intentionally excluded).
 - No high-poly-derived tangent-space normal or displacement details. **The geometry normal baker returns flat tangent normals**; painted height generates an approximate tangent-space normal texture.
 - No UDIM/multiple texture sets, complete multichannel PBR texture imports (color image only), layer folders, shader graphs, clone/stencil/decals, symmetry, sophisticated brush dynamics, layer undo, paint-stroke undo, or layer-to-layer anchor references.
-- Curvature is a **vertex-neighborhood approximation**, not a high-resolution multi-scale curvature baker.
+- Curvature is a **vertex-neighborhood approximation**, not a high-resolution multi-scale curvature baker. Accurate convex/concave hard-edge masks now use **topology-based angle/distance baking**, not this approximate curvature field.
 - AO/bent normal and thickness are GPU mesh-ray queries calculated at half map resolution, then sampled smoothly. The limited sample count and ray distance make them **local approximations**.
+- Weathering, scratches and leaking are **procedural approximations** informed by normal, edge and AO maps, rather than a physical exposure/erosion simulation. Review real-world assets and tune parameters for each model.
 - Missing UVs use a unique triangle atlas fallback. **Use properly authored UVs** for real assets; triangle-atlas padding and texel density are poor.
 - Final PBR channels now receive four GPU padding/dilation passes along UV island borders. Dedicated seam adjacency and mipmap generation are still future work.
 - Project files currently embed nonindexed triangle arrays; large scenes may produce large save files.
@@ -48,7 +55,7 @@ To build a Windows installer and standalone portable build on a Windows PC:
 npm run dist:win
 \`\`\`
 
-Generated executables appear under \`release/\`. Alternatively open GitHub **Actions → Windows installer** and download the latest successful **Peent3D-Windows** artifact.
+Generated executables appear under \`release/\`. For normal Windows downloads use the [Peent3D Releases page](https://github.com/joramvanloenen/Peent3D/releases), with separate portable and setup EXEs. The GitHub Actions artifacts are intended primarily for automated build testing.
 
 For quick browser testing:
 
@@ -62,9 +69,9 @@ The browser build can download ZIP/project files. The Electron build opens a nat
 
 1. Import a model with sensible non-overlapping UVs (OBJ or GLB), or start with the built-in torus knot.
 2. Choose a 256–2048 map resolution and AO sample count, then click **Bake mesh maps**.
-3. Use the right-hand panel to add, select, reorder and modify material layers.
-4. Choose a procedural smart-mask generator, or use **Paint (B)** / **Erase (E)** to modify the selected layer mask directly on the model. **V** returns to orbit; **F** frames.
-5. Switch the preview to **UV / Map view** or inspect a specific channel.
+3. Choose a material preset using the **New layer preset** selector, then press **＋**. You can also select, reorder or edit existing layers. Drag any slider, type an exact number, or press **↺** to reset one value.
+4. Choose **Edge wear · convex** for worn hard edges and adjust **Edge Distance** to set wear width in model-space units; or use streaks, leaks, rust, dust, scratches. Use **Paint (B)** / **Erase (E)** for edits. **V** orbits; **F** frames.
+5. Switch to **UV / Map view**, inspect individual channels or select **Selected smart mask** to troubleshoot the procedural layer.
 6. **Export maps** saves a ZIP of PNG textures. **Save project** keeps your layers, embedded mesh and paint-mask edits.
 
 **Important:** Changing bake resolution regenerates all masks and clears previous paint strokes. Save a project before changing resolution if you need to preserve them. Reimporting a mesh also resets paint mask textures.
@@ -73,10 +80,12 @@ The browser build can download ZIP/project files. The Electron build opens a nat
 
 \`\`\`text
 src/geometry.js                 UV/geometry preparation, vertex curvature, BVH
+src/edge.js                     Shared-edge adjacency, signed dihedral angles, world-space triangle altitude
 src/gpu.js                      GPU raster passes, ray baking, layer cache, painting, export
 src/shaders/uv.*                UV-space raster maps
 src/shaders/ray.frag.glsl       GPU BVH traversal for AO, bent normals, thickness
-src/shaders/layer.frag.glsl     Multi-channel procedural fill and masks
+src/shaders/smart.frag.glsl     Once-per-layer GPU smart masks: edge wear, drips, leaks, rust, dust, scratches
+src/shaders/layer.frag.glsl     Cached-mask PBR channel compositor
 src/shaders/brush.frag.glsl     Seam-aware 3D-position mask painting
 src/shaders/normal.frag.glsl    Height-to-tangent-normal approximation
 src/shaders/copy.frag.glsl      Linear-to-sRGB export / channel conversion
@@ -94,6 +103,7 @@ The model is converted to an **object-space, centered/scaled preview mesh** for 
 - Surface data and layer material results use GPU render targets.
 - Final materials are padded in a reusable GPU scratch target to reduce UV-seam bleeding.
 - Incremental layer composition caches previously evaluated lower layers.
+- Geometry-aware smart masks are evaluated **once per dirty layer** instead of redundantly on each material channel.
 - Device-pixel-ratio is capped at 2 for viewport performance.
 - Model data is non-indexed deliberately; for extremely large assets, indexed/interleaved geometry and sparse texture tiling would be better.
 
