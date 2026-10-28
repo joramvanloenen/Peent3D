@@ -1,0 +1,172 @@
+import * as THREE from 'three';
+import {OBJLoader} from 'three/addons/loaders/OBJLoader.js';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+
+// All baking geometry is non-indexed: one unambiguous UV, normal and ID per triangle corner.
+export function createDemoMesh() {
+  return prepareScene(new THREE.Mesh(new THREE.TorusKnotGeometry(0.85, 0.30, 110, 12), new THREE.MeshStandardMaterial()), 'Torus knot');
+}
+
+export async function loadMesh(file) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  let root;
+  if (ext === 'obj') root = new OBJLoader().parse(await file.text());
+  else if (ext === 'glb' || ext === 'gltf') {
+    const loader = new GLTFLoader();
+    const bytes = await file.arrayBuffer();
+    const gltf = await new Promise((resolve, reject) => loader.parse(bytes, '', resolve, reject));
+    root = gltf.scene;
+  } else throw Error('Supported mesh formats are .obj, .glb and embedded .gltf');
+  return prepareScene(root, file.name);
+}
+
+export function prepareScene(root, name = 'Untitled') {
+  root.updateMatrixWorld(true);
+  const meshes = [];
+  root.traverse(child => {
+    if (child.isMesh && child.geometry?.getAttribute('position')) meshes.push(child);
+  });
+  if (!meshes.length) throw Error('The file does not contain any triangle meshes.');
+  const positions = [], normals = [], uvs = [], ids = [];
+  let meshId = 0, missingUVs = false, triangleCount = 0;
+  for (const mesh of meshes) {
+    let geometry = mesh.geometry.clone();
+    if (geometry.index) geometry = geometry.toNonIndexed();
+    geometry.applyMatrix4(mesh.matrixWorld);
+    if (!geometry.getAttribute('normal')) geometry.computeVertexNormals();
+    const p = geometry.getAttribute('position');
+    const n = geometry.getAttribute('normal');
+    const uv = geometry.getAttribute('uv');
+    const triangles = Math.floor(p.count / 3);
+    if (!uv) missingUVs = true;
+    const cols = Math.ceil(Math.sqrt(triangles));
+    const materialGroups = geometry.groups || [];
+    for (let t = 0; t < triangles; t++) {
+      const group = materialGroups.find(g => t * 3 >= g.start && t * 3 < g.start + g.count);
+      const materialId = meshId * 16 + (group?.materialIndex || 0);
+      for (let corner = 0; corner < 3; corner++) {
+        const i = t * 3 + corner;
+        positions.push(p.getX(i), p.getY(i), p.getZ(i));
+        normals.push(n.getX(i), n.getY(i), n.getZ(i));
+        if (uv) uvs.push(uv.getX(i), uv.getY(i));
+        else {
+          // Triangle-atlas fallback keeps UVs unique. Supply authored UVs for high quality.
+          const cx = t % cols, cy = Math.floor(t / cols);
+          const tx = [0.08, 0.92, 0.08][corner];
+          const ty = [0.08, 0.08, 0.92][corner];
+          uvs.push((cx + tx) / cols, (cy + ty) / cols);
+        }
+        ids.push(materialId);
+      }
+    }
+    triangleCount += triangles;
+    meshId++;
+    geometry.dispose();
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  g.setAttribute('aId', new THREE.Float32BufferAttribute(ids, 1));
+  g.computeBoundingBox();
+  const bounds = g.boundingBox.clone();
+  const center = bounds.getCenter(new THREE.Vector3());
+  const size = bounds.getSize(new THREE.Vector3());
+  const radius = Math.max(size.x, size.y, size.z);
+  if (radius < 1e-8) throw Error('Mesh has zero size.');
+  // Uniform normalization maintains proportions and keeps ray distances predictable.
+  const attr = g.getAttribute('position');
+  for (let i = 0; i < attr.count; i++) {
+    attr.setXYZ(i, (attr.getX(i)-center.x)*2.5/radius, (attr.getY(i)-center.y)*2.5/radius, (attr.getZ(i)-center.z)*2.5/radius);
+  }
+  attr.needsUpdate = true;
+  g.computeBoundingBox();
+  g.computeBoundingSphere();
+  computeCurvature(g);
+  return {geometry:g, triangleCount, name, missingUVs, meshCount:meshes.length};
+}
+
+function computeCurvature(g) {
+  const p = g.getAttribute('position');
+  const n = g.getAttribute('normal');
+  const verts = new Map(), keys = [];
+  const key = i => [p.getX(i),p.getY(i),p.getZ(i)].map(v=>Math.round(v*10000)).join(',');
+  for (let i=0;i<p.count;i++) {
+    const k=key(i); keys.push(k);
+    if(!verts.has(k)) verts.set(k,{p:new THREE.Vector3(p.getX(i),p.getY(i),p.getZ(i)), n:new THREE.Vector3(), neighbors:new Set(), curvature:0});
+    verts.get(k).n.add(new THREE.Vector3(n.getX(i),n.getY(i),n.getZ(i)));
+  }
+  for(let i=0;i<p.count;i+=3) for(let c=0;c<3;c++) {
+    const a=verts.get(keys[i+c]); a.neighbors.add(keys[i+(c+1)%3]); a.neighbors.add(keys[i+(c+2)%3]);
+  }
+  for(const v of verts.values()) v.n.normalize();
+  const d=new THREE.Vector3();
+  for(const v of verts.values()) {
+    let k=0, count=0;
+    for(const neighborKey of v.neighbors) {
+      const other=verts.get(neighborKey);
+      d.subVectors(other.p,v.p);
+      const len=d.lengthSq();
+      if(len<1e-10) continue;
+      // Convex sphere: neighboring points lie behind the tangent plane (negative dot).
+      k+=-d.dot(v.n)/len;
+      count++;
+    }
+    v.curvature=count ? Math.tanh((k/count)*0.30) : 0;
+  }
+  const values=new Float32Array(p.count);
+  for(let i=0;i<values.length;i++) values[i]=Math.max(0,Math.min(1,.5+verts.get(keys[i]).curvature));
+  g.setAttribute('aCurvature',new THREE.BufferAttribute(values,1));
+}
+
+export function buildBVH(geometry) {
+  const pos=geometry.getAttribute('position');
+  const tris=[];
+  for(let t=0;t<pos.count/3;t++) {
+    const v=[];
+    for(let j=0;j<3;j++) v.push(new THREE.Vector3().fromBufferAttribute(pos,t*3+j));
+    const center=v[0].clone().add(v[1]).add(v[2]).multiplyScalar(1/3);
+    tris.push({v,center});
+  }
+  const nodes=[], ordered=[];
+  function build(list, depth) {
+    const id=nodes.length;
+    const min=new THREE.Vector3(Infinity,Infinity,Infinity);
+    const max=new THREE.Vector3(-Infinity,-Infinity,-Infinity);
+    for(const t of list) for(const p of t.v){min.min(p);max.max(p);}
+    const node={min,max,left:-1,right:-1,start:-1,count:0};
+    nodes.push(node);
+    if(list.length<=4 || depth>=32){
+      node.start=ordered.length;node.count=list.length;ordered.push(...list);
+    } else {
+      const extent=max.clone().sub(min);
+      const axis=extent.x>extent.y ? (extent.x>extent.z?'x':'z') : (extent.y>extent.z?'y':'z');
+      list.sort((a,b)=>a.center[axis]-b.center[axis]);
+      const m=Math.floor(list.length/2);
+      node.left=build(list.slice(0,m),depth+1);
+      node.right=build(list.slice(m),depth+1);
+    }
+    return id;
+  }
+  build(tris,0);
+  function textureFromTexels(values) {
+    const texels=values.length/4, width=Math.min(1024,Math.max(1,Math.ceil(Math.sqrt(texels))));
+    const height=Math.ceil(texels/width);
+    const data=new Float32Array(width*height*4);data.set(values);
+    const texture=new THREE.DataTexture(data,width,height,THREE.RGBAFormat,THREE.FloatType);
+    texture.magFilter=THREE.NearestFilter;texture.minFilter=THREE.NearestFilter;
+    texture.generateMipmaps=false;texture.needsUpdate=true;
+    return {texture,width,height};
+  }
+  const nodeData=[];
+  for(const n of nodes){
+    nodeData.push(n.min.x,n.min.y,n.min.z,n.left);
+    nodeData.push(n.max.x,n.max.y,n.max.z,n.right);
+    nodeData.push(n.start,n.count,0,0);
+  }
+  const triangleData=[];
+  for(const t of ordered) for(const v of t.v) triangleData.push(v.x,v.y,v.z,0);
+  return {nodes:textureFromTexels(nodeData),triangles:textureFromTexels(triangleData),nodeCount:nodes.length,triangleCount:ordered.length,dispose(){
+    this.nodes.texture.dispose();this.triangles.texture.dispose();
+  }};
+}

@@ -1,0 +1,59 @@
+{
+  "name": "peent3d",
+  "version": "0.1.0",
+  "description": "GPU-driven low-poly material painter and mesh map baker for Windows",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "web": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "dist:win": "npm run build && electron-builder --win nsis portable",
+    "check": "node --check src/main.js && node --check src/gpu.js && node --check src/geometry.js && node --check electron/main.cjs && node --check electron/preload.cjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "three": "^0.181.0",
+    "fflate": "^0.8.2"
+  },
+  "devDependencies": {
+    "vite": "^7.1.0",
+    "electron": "45.1.0",
+    "electron-builder": "^26.18.0",
+    "concurrently": "^9.2.1",
+    "wait-on": "^8.0.0"
+  },
+  "build": {
+    "appId": "com.peent3d.editor",
+    "productName": "Peent3D",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

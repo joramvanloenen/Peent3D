@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws://127.0.0.1:5173; worker-src 'self' blob:; object-src 'none';" />
+  <title>Peent3D</title>
+</head>
+<body>
+ <div id="app">
+  <header class="topbar">
+   <div class="brand"><span class="brand-mark">◈</span><span>PEENT<span class="thin">3D</span></span><span class="beta">BETA</span></div>
+   <div class="top-actions">
+     <button id="btn-import">↥ &nbsp;Import mesh</button>
+     <button id="btn-project">Save project</button>
+     <button id="btn-load">Open project</button>
+     <button id="btn-export" class="primary">↧ &nbsp;Export maps</button>
+   </div>
+  </header>
+  <main class="workspace">
+   <aside class="toolbar">
+     <button id="tool-orbit" class="tool active" title="Orbit (V)">◎<small>View</small></button>
+     <button id="tool-paint" class="tool" title="Paint mask (B)">◉<small>Paint</small></button>
+     <button id="tool-erase" class="tool" title="Erase mask (E)">◌<small>Erase</small></button>
+     <div class="tool-divider"></div>
+     <button id="btn-reset-camera" class="tool" title="Frame object (F)">⌖<small>Frame</small></button>
+   </aside>
+   <section class="stage">
+    <div class="view-header">
+     <div class="view-tabs"><button id="tab-3d" class="selected">3D view</button><button id="tab-uv">UV / Map view</button></div>
+     <div class="view-controls"><label>Preview <select id="channel-view"><option value="material">Material</option><option value="baseColor">Base color</option><option value="roughness">Roughness</option><option value="metalness">Metallic</option><option value="normal">Normal</option><option value="ao">AO</option><option value="curvature">Curvature</option><option value="thickness">Thickness</option><option value="position">Position</option><option value="id">ID</option><option value="height">Elevation</option><option value="opacity">Coverage</option></select></label></div>
+    </div>
+    <div id="viewport" class="viewport"><div id="drop-hint" class="drop-hint">Drop an OBJ, GLB or GLTF here to open</div><div id="loading" class="loading hidden">Processing mesh…</div></div>
+    <div class="stage-footer"><span id="mesh-info">Default sphere</span><span id="gpu-info">GPU initialization…</span><span id="status">Ready</span></div>
+   </section>
+   <aside class="inspector">
+     <section class="panel">
+      <div class="panel-heading"><h3>Mesh maps</h3><span class="badge">GPU</span></div>
+      <div class="row"><label for="resolution">Resolution</label><select id="resolution"><option value="256">256 px</option><option value="512" selected>512 px</option><option value="1024">1024 px</option><option value="2048">2048 px</option></select></div>
+      <div class="row"><label for="samples">Ray samples</label><select id="samples"><option value="8">8 · Fast</option><option value="16" selected>16 · Balanced</option><option value="32">32 · Quality</option><option value="64">64 · High</option></select></div>
+      <div class="row"><label>Ray distance</label><input id="ray-distance" type="range" min=".03" max="1.5" step=".01" value=".35"><output id="ray-distance-value">0.35</output></div>
+      <button id="btn-bake" class="wide secondary">✧ &nbsp;Bake mesh maps</button>
+      <div class="subtle" id="bake-note">Object-space normals, AO, curvature, thickness, bent normals, IDs, position, coverage and elevation.</div>
+     </section>
+     <section class="panel layers-panel">
+      <div class="panel-heading"><h3>Material layers</h3><div class="inline-buttons"><button id="btn-add-layer" title="New material layer">＋</button><button id="btn-remove-layer" title="Remove selected layer">−</button></div></div>
+      <div id="layer-list" class="layer-list"></div>
+      <div class="layer-bottom"><button id="btn-layer-up" title="Move toward top">↑ Move up</button><button id="btn-layer-down" title="Move toward bottom">↓ Move down</button></div>
+     </section>
+     <section class="panel properties-panel">
+      <div class="panel-heading"><h3>Layer properties</h3></div>
+      <div id="layer-properties"><div class="subtle">Select a layer to edit.</div></div>
+     </section>
+   </aside>
+  </main>
+  <input type="file" id="mesh-file" hidden accept=".obj,.glb,.gltf" />
+  <input type="file" id="project-file" hidden accept=".peent,.json" />
+ </div>
+ <script type="module" src="/src/main.js"></script>
+</body></html>

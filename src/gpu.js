@@ -1,0 +1,398 @@
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {buildBVH} from './geometry.js';
+import uvVert from './shaders/uv.vert.glsl?raw';
+import uvFrag from './shaders/uv.frag.glsl?raw';
+import quadVert from './shaders/quad.vert.glsl?raw';
+import rayFrag from './shaders/ray.frag.glsl?raw';
+import layerFrag from './shaders/layer.frag.glsl?raw';
+import brushFrag from './shaders/brush.frag.glsl?raw';
+import normalFrag from './shaders/normal.frag.glsl?raw';
+import copyFrag from './shaders/copy.frag.glsl?raw';
+
+const CHANNELS=['baseColor','roughness','metalness','height'];
+const MESH_MAPS=['position','worldNormal','curvature','id','elevation','normal','opacity'];
+export const MAP_NAMES=['baseColor','roughness','metalness','normal','height','position','worldNormal','curvature','id','elevation','opacity','ao','bentNormal','thickness'];
+
+function target(size,type=THREE.HalfFloatType){
+  const rt=new THREE.WebGLRenderTarget(size,size,{type,format:THREE.RGBAFormat,
+    minFilter:THREE.NearestFilter,magFilter:THREE.NearestFilter,
+    generateMipmaps:false,depthBuffer:false,stencilBuffer:false});
+  rt.texture.colorSpace=THREE.NoColorSpace;
+  return rt;
+}
+function shader(vertex,fragment,uniforms){
+  return new THREE.RawShaderMaterial({glslVersion:THREE.GLSL3,vertexShader:vertex,fragmentShader:fragment,
+    depthTest:false,depthWrite:false,transparent:false,uniforms});
+}
+function U(value){return {value};}
+function disposeTargets(collection){
+  if(Array.isArray(collection)) collection.forEach(disposeTargets);
+  else if(collection?.dispose) collection.dispose();
+  else if(collection && typeof collection==='object') Object.values(collection).forEach(disposeTargets);
+}
+
+export class PeentGPU {
+  constructor(element){
+    this.element=element;
+    this.renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio||1,2));
+    this.renderer.outputColorSpace=THREE.SRGBColorSpace;
+    this.renderer.toneMapping=THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure=1.15;
+    element.appendChild(this.renderer.domElement);
+    this.renderer.setSize(element.clientWidth,element.clientHeight,false);
+    this.scene=new THREE.Scene();
+    this.camera=new THREE.PerspectiveCamera(45,1,.05,100);
+    this.camera.position.set(2.8,2.2,3.7);
+    this.controls=new OrbitControls(this.camera,this.renderer.domElement);
+    this.controls.enableDamping=true;
+    this.controls.minDistance=.7;
+    this.controls.maxDistance=22;
+    this.controls.target.set(0,0,0);
+    this.scene.add(new THREE.HemisphereLight(0xcad8ec,0x28313c,2.2));
+    const key=new THREE.DirectionalLight(0xffedd9,3.0);key.position.set(3,6,4);this.scene.add(key);
+    const fill=new THREE.DirectionalLight(0x9bcade,1.3);fill.position.set(-5,2,-3);this.scene.add(fill);
+    this.scene.add(new THREE.GridHelper(8,16,0x34434d,0x26323c));
+    this.previewMaterial=new THREE.MeshStandardMaterial({color:0xffffff,metalness:0,roughness:.65,side:THREE.DoubleSide});
+    this.uvScene=new THREE.Scene();
+    this.quadScene=new THREE.Scene();
+    this.quad=new THREE.Mesh(new THREE.PlaneGeometry(2,2),new THREE.MeshBasicMaterial());
+    this.quadScene.add(this.quad);
+    this.quadCamera=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+    this.uvViewScene=new THREE.Scene();
+    this.viewQuad=new THREE.Mesh(new THREE.PlaneGeometry(2,2),new THREE.MeshBasicMaterial({toneMapped:false}));
+    this.uvViewScene.add(this.viewQuad);
+    this.viewCamera=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+    this.raycaster=new THREE.Raycaster();
+    this.size=512;this.sampleCount=16;this.rayDistance=.35;
+    this.maps={};this.composites=[];this.paintMasks=new Map();this.dirtyFrom=0;
+    this.view='3d';this.channel='material';this.layers=[];
+    this.gpuName=this.renderer.getContext().getParameter(this.renderer.getContext().RENDERER)||'WebGL2';
+    this._resizer=new ResizeObserver(()=>this.resize());
+    this._resizer.observe(element);
+    this._running=true;
+    this._animate();
+  }
+  resize(){
+    const w=Math.max(16,this.element.clientWidth),h=Math.max(16,this.element.clientHeight);
+    this.camera.aspect=w/h;this.camera.updateProjectionMatrix();
+    this.renderer.setSize(w,h,false);
+  }
+  _animate(){
+    if(!this._running)return;
+    requestAnimationFrame(()=>this._animate());
+    this.controls.update();
+    this.renderer.setRenderTarget(null);
+    if(this.view==='uv'){
+      const map=this.getPreviewTexture();
+      this.viewQuad.material.map=map||null;
+      this.viewQuad.material.needsUpdate=true;
+      this.renderer.render(this.uvViewScene,this.viewCamera);
+    } else this.renderer.render(this.scene,this.camera);
+  }
+  setGeometry(result){
+    if(this.mesh){this.scene.remove(this.mesh);this.mesh.geometry.dispose();}
+    if(this.uvMesh)this.uvScene.remove(this.uvMesh);
+    this.bvh?.dispose();
+    disposeTargets(this.maps);this.maps={};
+    disposeTargets(this.composites);this.composites=[];
+    for(const rt of this.paintMasks.values())rt.dispose();
+    this.paintMasks.clear();
+    this.model=result;
+    this.mesh=new THREE.Mesh(result.geometry,this.previewMaterial);
+    this.mesh.frustumCulled=false;
+    this.scene.add(this.mesh);
+    this.uvMesh=new THREE.Mesh(result.geometry,null);
+    this.uvMesh.frustumCulled=false;
+    this.uvScene.add(this.uvMesh);
+    this.bvh=buildBVH(result.geometry);
+    this.dirtyFrom=0;
+    this.frame();
+  }
+  frame(){
+    if(!this.model)return;
+    const sphere=this.model.geometry.boundingSphere;
+    this.controls.target.copy(sphere.center);
+    this.camera.position.copy(sphere.center).add(new THREE.Vector3(2.4,1.8,3.5).normalize().multiplyScalar(sphere.radius*3.25));
+    this.camera.near=.01;this.camera.far=Math.max(100,sphere.radius*12);this.camera.updateProjectionMatrix();this.controls.update();
+  }
+  _draw(material,destination,geometryScene=null){
+    this.renderer.setRenderTarget(destination);
+    this.renderer.setClearColor(0x000000,0);
+    this.renderer.clear(true,true,true);
+    if(geometryScene){
+      this.uvMesh.material=material;
+      this.renderer.render(geometryScene,this.quadCamera);
+    }else{
+      this.quad.material=material;
+      this.renderer.render(this.quadScene,this.quadCamera);
+    }
+    this.renderer.setRenderTarget(null);
+    this.renderer.setClearColor(0x11151c,1);
+  }
+  _bakeRaster(){
+    const bounds=this.model.geometry.boundingBox;
+    const size=bounds.getSize(new THREE.Vector3());
+    const mat=shader(uvVert,uvFrag,{
+      uMode:U(0),uMin:U(bounds.min.clone()),uSize:U(size)
+    });
+    for(let i=0;i<MESH_MAPS.length;i++){
+      const name=MESH_MAPS[i];
+      this.maps[name]=target(this.size);
+      mat.uniforms.uMode.value=i;
+      this._draw(mat,this.maps[name],this.uvScene);
+    }
+    mat.dispose();
+  }
+  _bakeRays(){
+    const nodes=this.bvh.nodes,triangles=this.bvh.triangles;
+    const mat=shader(quadVert,rayFrag,{
+      uPosition:U(this.maps.position.texture),uNormal:U(this.maps.worldNormal.texture),
+      uNodes:U(nodes.texture),uTriangles:U(triangles.texture),
+      uNodesWidth:U(nodes.width),uTrianglesWidth:U(triangles.width),
+      uSamples:U(this.sampleCount),uMode:U(0),uDistance:U(this.rayDistance)
+    });
+    for(let i=0;i<3;i++){
+      const name=['ao','bentNormal','thickness'][i];
+      this.maps[name]=target(this.size);
+      mat.uniforms.uMode.value=i;
+      this._draw(mat,this.maps[name]);
+    }
+    mat.dispose();
+  }
+  async bake(onProgress=()=>{}){
+    if(!this.model)throw Error('Load a mesh first');
+    disposeTargets(this.maps);this.maps={};
+    onProgress('Rasterizing UV geometry');
+    await new Promise(requestAnimationFrame);
+    this._bakeRaster();
+    onProgress('Ray tracing ambient occlusion, bent normals and thickness');
+    await new Promise(requestAnimationFrame);
+    this._bakeRays();
+    onProgress('Building material layers');
+    this.dirtyFrom=0;
+    this._resetMasksForResolution();
+    this.compose();
+  }
+  _mask(layer){
+    if(this.paintMasks.has(layer.id))return this.paintMasks.get(layer.id);
+    const rt=target(this.size);
+    this.renderer.setRenderTarget(rt);
+    this.renderer.setClearColor(0xffffff,1);
+    this.renderer.clear(true,true,true);
+    this.renderer.setRenderTarget(null);
+    this.renderer.setClearColor(0x11151c,1);
+    this.paintMasks.set(layer.id,rt);
+    return rt;
+  }
+  _resetMasksForResolution(){
+    for(const rt of this.paintMasks.values())rt.dispose();
+    this.paintMasks.clear();
+    disposeTargets(this.composites);
+    this.composites=[];
+  }
+  markDirty(index=0){
+    this.dirtyFrom=Math.min(this.dirtyFrom,index);
+  }
+  compose(layers=this.layers){
+    this.layers=layers;
+    if(!this.maps.position)return;
+    let start=Math.min(this.dirtyFrom,this.composites.length);
+    const geometryBounds=this.model.geometry.boundingBox;
+    const uniforms={
+      uPrevious:U(null),
+      uPosition:U(this.maps.position.texture),uNormal:U(this.maps.worldNormal.texture),
+      uCurvature:U(this.maps.curvature.texture),uAO:U(this.maps.ao.texture),
+      uThickness:U(this.maps.thickness.texture),uPaint:U(null),
+      uMode:U(0),uHasPrevious:U(0),uMask:U(0),uProjection:U(1),
+      uColor:U(new THREE.Color()),uRoughness:U(.6),uMetallic:U(0),uHeight:U(0),
+      uOpacity:U(1),uScale:U(1),uContrast:U(1),uSeed:U(0),uStrength:U(.3),
+      uMin:U(geometryBounds.min.clone()),uSize:U(geometryBounds.getSize(new THREE.Vector3()))
+    };
+    const mat=shader(quadVert,layerFrag,uniforms);
+    // Compose only dirty layers; previous layer outputs remain cached.
+    for(let i=start;i<layers.length;i++){
+      const layer=layers[i];
+      if(!this.composites[i])this.composites[i]={};
+      for(let channel=0;channel<CHANNELS.length;channel++){
+        const name=CHANNELS[channel];
+        if(!this.composites[i][name])this.composites[i][name]=target(this.size);
+        const previous=i>0?this.composites[i-1][name]?.texture:null;
+        if(!layer.visible && previous){
+          // Hidden layers still get a cache copy, so later dependencies remain stable.
+          const copy=shader(quadVert,copyFrag,{uTexture:U(previous),uMode:U(0)});
+          this._draw(copy,this.composites[i][name]);copy.dispose();
+          continue;
+        }
+        uniforms.uPrevious.value=previous;
+        uniforms.uHasPrevious.value=previous?1:0;
+        uniforms.uPaint.value=this._mask(layer).texture;
+        uniforms.uMode.value=channel;
+        uniforms.uMask.value=layer.mask;
+        uniforms.uProjection.value=layer.projection==='triplanar'?1:0;
+        uniforms.uColor.value.set(layer.color);
+        uniforms.uRoughness.value=layer.roughness;
+        uniforms.uMetallic.value=layer.metallic;
+        uniforms.uHeight.value=layer.height;
+        uniforms.uOpacity.value=layer.visible?layer.opacity:0;
+        uniforms.uScale.value=layer.scale;
+        uniforms.uContrast.value=layer.contrast;
+        uniforms.uSeed.value=layer.seed;
+        uniforms.uStrength.value=layer.variation;
+        this._draw(mat,this.composites[i][name]);
+      }
+    }
+    mat.dispose();
+    for(let i=layers.length;i<this.composites.length;i++)disposeTargets(this.composites[i]);
+    this.composites.length=layers.length;
+    this.dirtyFrom=layers.length;
+    this._bakeNormalFromHeight();
+    this._updateMaterial();
+  }
+  _bakeNormalFromHeight(){
+    this.normalResult?.dispose();
+    this.normalResult=target(this.size);
+    const last=this.composites.at(-1);
+    const mat=shader(quadVert,normalFrag,{
+      uHeight:U(last?.height?.texture||this.maps.height.texture),
+      uCoverage:U(this.maps.position.texture),
+      uTexel:U(new THREE.Vector2(1/this.size,1/this.size)),
+      uStrength:U(8)
+    });
+    this._draw(mat,this.normalResult);mat.dispose();
+  }
+  _updateMaterial(){
+    const last=this.composites.at(-1);
+    this.previewMaterial.map=last?.baseColor?.texture||null;
+    this.previewMaterial.roughnessMap=last?.roughness?.texture||null;
+    this.previewMaterial.metalnessMap=last?.metalness?.texture||null;
+    this.previewMaterial.normalMap=this.normalResult?.texture||null;
+    this.previewMaterial.color.set(0xffffff);
+    this.previewMaterial.roughness=1;
+    this.previewMaterial.metalness=1;
+    this.previewMaterial.needsUpdate=true;
+    this.viewQuad.material.needsUpdate=true;
+  }
+  getPreviewTexture(){
+    const last=this.composites.at(-1);
+    const outputs={
+      material:last?.baseColor?.texture,
+      baseColor:last?.baseColor?.texture,
+      roughness:last?.roughness?.texture,metalness:last?.metalness?.texture,
+      height:last?.height?.texture,normal:this.normalResult?.texture,
+      ao:this.maps.ao?.texture,curvature:this.maps.curvature?.texture,
+      thickness:this.maps.thickness?.texture,position:this.maps.position?.texture,
+      id:this.maps.id?.texture,worldNormal:this.maps.worldNormal?.texture,
+      elevation:this.maps.elevation?.texture,opacity:this.maps.opacity?.texture,
+      bentNormal:this.maps.bentNormal?.texture
+    };
+    return outputs[this.channel]||null;
+  }
+  selectView(view,channel){
+    this.view=view;
+    this.channel=channel;
+    this.controls.enabled=view==='3d';
+    this._updateMaterial();
+    if(view==='3d'){
+      if(channel==='material')this.mesh.material=this.previewMaterial;
+      else{
+        if(!this.channelMaterial)this.channelMaterial=new THREE.MeshBasicMaterial({side:THREE.DoubleSide});
+        this.channelMaterial.map=this.getPreviewTexture();
+        this.channelMaterial.needsUpdate=true;
+        this.mesh.material=this.channelMaterial;
+      }
+    }
+  }
+  pick(clientX,clientY){
+    if(!this.mesh || this.view!=='3d')return null;
+    const rect=this.renderer.domElement.getBoundingClientRect();
+    const coords=new THREE.Vector2((clientX-rect.left)/rect.width*2-1,-(clientY-rect.top)/rect.height*2+1);
+    this.raycaster.setFromCamera(coords,this.camera);
+    const hit=this.raycaster.intersectObject(this.mesh,false)[0];
+    if(!hit)return null;
+    return {point:hit.point.clone(),normal:hit.face.normal.clone()};
+  }
+  paint(layer,hit,erase=false,radius=.15,hardness=.55,strength=.7){
+    if(!layer||!hit||!this.maps.position)return;
+    const src=this._mask(layer);
+    const dst=target(this.size);
+    const mat=shader(quadVert,brushFrag,{
+      uPrevious:U(src.texture),uPosition:U(this.maps.position.texture),
+      uNormal:U(this.maps.worldNormal.texture),
+      uPoint:U(hit.point),uBrushNormal:U(hit.normal),
+      uRadius:U(radius),uHardness:U(hardness),uStrength:U(strength),
+      uValue:U(erase?0:1)
+    });
+    this._draw(mat,dst);mat.dispose();
+    src.dispose();
+    this.paintMasks.set(layer.id,dst);
+    const index=this.layers.findIndex(x=>x.id===layer.id);
+    this.dirtyFrom=Math.min(this.dirtyFrom,Math.max(0,index));
+  }
+  async mapPNG(rt,mode=0){
+    const tex=rt?.texture;
+    if(!tex)throw Error('No texture available. Bake the mesh first.');
+    const exportTarget=target(this.size,THREE.UnsignedByteType);
+    const mat=shader(quadVert,copyFrag,{uTexture:U(tex),uMode:U(mode)});
+    this._draw(mat,exportTarget);mat.dispose();
+    const w=this.size,h=this.size,read=new Uint8Array(w*h*4);
+    this.renderer.readRenderTargetPixels(exportTarget,0,0,w,h,read);
+    exportTarget.dispose();
+    const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
+    const ctx=canvas.getContext('2d');
+    const pixels=ctx.createImageData(w,h);
+    // OpenGL readbacks are bottom-up, PNG image rows are top-down.
+    for(let y=0;y<h;y++)pixels.data.set(read.subarray(y*w*4,(y+1)*w*4),(h-1-y)*w*4);
+    ctx.putImageData(pixels,0,0);
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+    if(!blob)throw Error('PNG encoding failed.');
+    return new Uint8Array(await blob.arrayBuffer());
+  }
+  async exportMaps(){
+    if(!this.maps.position)throw Error('Bake maps before exporting');
+    const last=this.composites.at(-1);
+    const all={
+      BaseColor:[last?.baseColor,1],Roughness:[last?.roughness,2],
+      Metallic:[last?.metalness,2],Normal:[this.normalResult,0],
+      Height:[last?.height,2],AO:[this.maps.ao,2],
+      Curvature:[this.maps.curvature,2],Position:[this.maps.position,0],
+      WorldNormal:[this.maps.worldNormal,0],Thickness:[this.maps.thickness,2],
+      BentNormal:[this.maps.bentNormal,0],ID:[this.maps.id,0],
+      Elevation:[this.maps.elevation,2],Opacity:[this.maps.opacity,2]
+    };
+    const files={};
+    for(const [name,[rt,mode]] of Object.entries(all)){
+      if(rt)files[name+'.png']=await this.mapPNG(rt,mode);
+    }
+    return files;
+  }
+  async capturePaintMasks(){
+    const masks={};
+    for(const [id,rt] of this.paintMasks.entries())masks[id]=Array.from(await this.mapPNG(rt,2));
+    return masks;
+  }
+  async restorePaintMasks(masks){
+    for(const [id,bytes] of Object.entries(masks||{})){
+      if(!this.layers.find(l=>l.id===id))continue;
+      const blob=new Blob([new Uint8Array(bytes)],{type:'image/png'});
+      const bitmap=await createImageBitmap(blob);
+      const tex=new THREE.CanvasTexture(bitmap);
+      tex.colorSpace=THREE.NoColorSpace;
+      const rt=target(this.size);
+      const mat=shader(quadVert,copyFrag,{uTexture:U(tex),uMode:U(0)});
+      this._draw(mat,rt);mat.dispose();tex.dispose();bitmap.close();
+      this.paintMasks.get(id)?.dispose();
+      this.paintMasks.set(id,rt);
+    }
+    this.dirtyFrom=0;this.compose();
+  }
+  setResolution(size){this.size=Math.min(2048,Math.max(256,size|0));}
+  dispose(){
+    this._running=false;this._resizer.disconnect();
+    disposeTargets(this.maps);disposeTargets(this.composites);
+    for(const rt of this.paintMasks.values())rt.dispose();
+    this.bvh?.dispose();this.normalResult?.dispose();
+    this.controls.dispose();this.renderer.dispose();
+  }
+}
